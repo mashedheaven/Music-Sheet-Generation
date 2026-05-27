@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+.npm
+*.tgz
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Storage (local dev data)
+backend/storage/uploads/*
+backend/storage/stems/*
+backend/storage/scores/*
+backend/storage/exports/*
+!backend/storage/**/.gitkeep
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment
+.env
+.env.local
+.env.production
+
+# ML Models (downloaded at runtime)
+ml_pipeline/models/
+
+# Logs
+*.log
+
+# Test / Coverage
+.coverage
+htmlcov/
+.pytest_cache/
