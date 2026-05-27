@@ -17,6 +17,7 @@ export interface Score {
   format: 'musicxml' | 'midi';
   file_path: string;
   created_at: string;
+  is_ensemble: boolean;
 }
 
 // ── Stem ─────────────────────────────────────────────────────────────────────
@@ -40,6 +41,7 @@ export interface Job {
   file_size: number;
   duration: number | null;
   stems: Stem[];
+  scores: Score[];
   created_at: string;
   updated_at: string;
 }

@@ -98,18 +98,32 @@ class SimpleQuantizer(NoteQuantizer):
         return round(time_value / grid_interval) * grid_interval
 
 
-def detect_tempo_stub() -> TempoInfo:
-    """Return a default tempo estimation.
+def detect_tempo(audio_path: Path) -> TempoInfo:
+    """Detect tempo and beat positions from audio using librosa.
 
-    This is a placeholder for real tempo detection (e.g. using librosa.beat).
-    Returns 120 BPM, 4/4 time.
+    Args:
+        audio_path: Path to the audio file.
 
     Returns:
-        TempoInfo with default values.
+        TempoInfo with detected BPM and beat times.
     """
+    import librosa
+    import numpy as np
+
+    # Load audio, we only need the first 60 seconds to get a good tempo estimate
+    y, sr = librosa.load(str(audio_path), sr=None, duration=60.0)
+    
+    # Run beat tracker
+    tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
+    
+    # Convert frames to times
+    beat_times = librosa.frames_to_time(beat_frames, sr=sr)
+    
+    # Simple heuristic for time signature: default to 4/4
+    # In a full production system, we'd use something more sophisticated like madmom
     return TempoInfo(
-        bpm=120.0,
+        bpm=float(tempo[0] if isinstance(tempo, np.ndarray) else tempo),
         time_signature_numerator=4,
         time_signature_denominator=4,
-        beat_positions=[i * 0.5 for i in range(64)],  # 16 bars of beats
+        beat_positions=beat_times.tolist(),
     )

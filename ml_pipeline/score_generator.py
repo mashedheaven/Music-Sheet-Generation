@@ -209,6 +209,10 @@ class Music21ScoreGenerator(ScoreGenerator):
         else:
             self._add_pitched_notes(part, part_data.notes)
 
+        # Force music21 to snap all internal float timings to the 16th note grid
+        # (1/4 of a quarter note). This eliminates any microscopic tuplets.
+        part.quantize([4], processOffsets=True, processDurations=True, inPlace=True)
+
         # Make measures (music21 handles bar lines)
         part.makeMeasures(inPlace=True)
 
@@ -247,7 +251,7 @@ class Music21ScoreGenerator(ScoreGenerator):
                 duration_ql = self._seconds_to_quarter_lengths(pn.duration)
                 m21_note = m21note.Note(pn.pitch, quarterLength=duration_ql)
                 m21_note.volume.velocity = pn.velocity
-                part.insert(onset * (self.tempo_info.bpm / 60.0), m21_note)
+                part.insert(self._seconds_to_offset(onset), m21_note)
             else:
                 # Chord — group of simultaneous notes
                 pitches = [pn.pitch for pn in group]
@@ -257,7 +261,7 @@ class Music21ScoreGenerator(ScoreGenerator):
 
                 m21_chord = m21chord.Chord(pitches, quarterLength=duration_ql)
                 m21_chord.volume.velocity = group[0].velocity
-                part.insert(onset * (self.tempo_info.bpm / 60.0), m21_chord)
+                part.insert(self._seconds_to_offset(onset), m21_chord)
 
     def _add_percussion_notes(
         self, part: "stream.Part", notes: List[PipelineNote]
@@ -268,38 +272,67 @@ class Music21ScoreGenerator(ScoreGenerator):
             part: The music21 Part to add notes to.
             notes: List of pipeline Note objects with GM drum MIDI numbers.
         """
-        from music21 import note as m21note, percussion as m21perc
+        from music21 import note as m21note, chord as m21chord, pitch as m21pitch
 
-        for pn in notes:
-            duration_ql = self._seconds_to_quarter_lengths(pn.duration)
+        if not notes:
+            return
 
-            # Create unpitched percussion note
-            try:
-                up = m21note.Unpitched(quarterLength=duration_ql)
+        # Group notes by onset time for chord detection
+        onset_groups: Dict[float, List[PipelineNote]] = {}
+        for n in notes:
+            onset_key = round(n.onset, 6)
+            if onset_key not in onset_groups:
+                onset_groups[onset_key] = []
+            onset_groups[onset_key].append(n)
+
+        for onset in sorted(onset_groups.keys()):
+            group = onset_groups[onset]
+            
+            # Percussion notation in music21 works best if we use regular Notes/Chords
+            # but assign them to a percussion staff. The PercussionClef handles the rendering.
+            # We will use regular notes/chords but map their display pitches.
+            
+            if len(group) == 1:
+                pn = group[0]
+                duration_ql = self._seconds_to_quarter_lengths(pn.duration)
+                m21_note = m21note.Note(pn.pitch, quarterLength=duration_ql)
+                
                 # Set display position for the drum instrument
                 if pn.pitch in _DRUM_DISPLAY:
                     display_step, display_octave = _DRUM_DISPLAY[pn.pitch]
-                    up.displayStep = display_step
-                    up.displayOctave = display_octave
-                else:
-                    # Default position for unknown percussion
-                    up.displayStep = "E"
-                    up.displayOctave = 4
-
-                up.volume.velocity = pn.velocity
-                offset_ql = pn.onset * (self.tempo_info.bpm / 60.0)
-                part.insert(offset_ql, up)
-            except Exception as e:
-                # Fallback: use a regular note for percussion
-                logger.warning(
-                    "Failed to create unpitched note for pitch %d: %s. "
-                    "Falling back to regular note.",
-                    pn.pitch, e,
-                )
-                m21_note = m21note.Note(pn.pitch, quarterLength=duration_ql)
+                    m21_note.pitch.step = display_step
+                    m21_note.pitch.octave = display_octave
+                    
                 m21_note.volume.velocity = pn.velocity
-                offset_ql = pn.onset * (self.tempo_info.bpm / 60.0)
-                part.insert(offset_ql, m21_note)
+                # Noteheads for cymbals
+                if pn.pitch in (42, 44, 46, 49, 51, 52, 53, 55, 57, 59):
+                    m21_note.notehead = 'cross'
+                if pn.pitch == 46: # Open hi-hat
+                    m21_note.notehead = 'circle-x'
+
+                part.insert(self._seconds_to_offset(onset), m21_note)
+            else:
+                # Chord of drum hits
+                min_dur = min(pn.duration for pn in group)
+                duration_ql = self._seconds_to_quarter_lengths(min_dur)
+                
+                m21_chord = m21chord.Chord([pn.pitch for pn in group], quarterLength=duration_ql)
+                m21_chord.volume.velocity = group[0].velocity
+                
+                # Update display pitches and noteheads for each note in the chord
+                for i, pn in enumerate(group):
+                    chord_pitch = m21_chord.pitches[i]
+                    if pn.pitch in _DRUM_DISPLAY:
+                        display_step, display_octave = _DRUM_DISPLAY[pn.pitch]
+                        chord_pitch.step = display_step
+                        chord_pitch.octave = display_octave
+                    
+                    if pn.pitch in (42, 44, 46, 49, 51, 52, 53, 55, 57, 59):
+                        m21_chord.notes[i].notehead = 'cross'
+                    if pn.pitch == 46:
+                        m21_chord.notes[i].notehead = 'circle-x'
+                        
+                part.insert(self._seconds_to_offset(onset), m21_chord)
 
     def _seconds_to_quarter_lengths(self, duration_seconds: float) -> float:
         """Convert a duration in seconds to music21 quarter note lengths.
@@ -311,7 +344,14 @@ class Music21ScoreGenerator(ScoreGenerator):
             Duration in quarter note lengths. Minimum 0.25 (16th note).
         """
         beats = duration_seconds * (self.tempo_info.bpm / 60.0)
-        return max(beats, 0.25)  # Minimum 16th note
+        # Snap strictly to a 16th note grid (0.25 quarter notes)
+        return round(max(beats, 0.25) * 4) / 4.0
+
+    def _seconds_to_offset(self, time_seconds: float) -> float:
+        """Convert a time in seconds to music21 quarter note offset."""
+        beats = time_seconds * (self.tempo_info.bpm / 60.0)
+        # Snap strictly to a 16th note grid (0.25 quarter notes)
+        return round(beats * 4) / 4.0
 
     @staticmethod
     def _get_m21_instrument(info: InstrumentInfo) -> "m21instrument.Instrument":

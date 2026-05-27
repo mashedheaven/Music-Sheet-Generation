@@ -87,6 +87,8 @@ class JobResponse(BaseModel):
     error_message: str | None = None
     created_at: datetime
     updated_at: datetime
+    transcribe_vocals: bool
+    indian_percussion_mode: bool
     stems: list[StemResponse] = []
     scores: list[ScoreResponse] = []
 
@@ -107,6 +109,8 @@ class JobResponse(BaseModel):
             error_message=job.error_message,
             created_at=job.created_at,
             updated_at=job.updated_at,
+            transcribe_vocals=job.transcribe_vocals,
+            indian_percussion_mode=job.indian_percussion_mode,
             stems=[StemResponse.from_orm_with_url(s) for s in job.stems],
             scores=[ScoreResponse.from_orm_with_url(s) for s in job.scores],
         )

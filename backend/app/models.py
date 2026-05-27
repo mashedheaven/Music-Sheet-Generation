@@ -51,6 +51,10 @@ class Job(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
     )
+    
+    # Configuration flags
+    transcribe_vocals: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    indian_percussion_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     # Relationships
     stems: Mapped[List["Stem"]] = relationship(

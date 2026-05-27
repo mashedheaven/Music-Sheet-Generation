@@ -73,8 +73,10 @@ class StemBasedDetector(InstrumentDetector):
     def __init__(
         self,
         instrument_map: Dict[str, InstrumentInfo] | None = None,
+        indian_percussion_mode: bool = False,
     ) -> None:
         self.instrument_map = instrument_map or dict(_STEM_INSTRUMENT_MAP)
+        self.indian_percussion_mode = indian_percussion_mode
 
     def detect(self, stems: Dict[str, Path]) -> List[InstrumentInfo]:
         """Map stem names to InstrumentInfo objects.
@@ -94,7 +96,16 @@ class StemBasedDetector(InstrumentDetector):
         for stem_name in stems:
             normalized = stem_name.lower().strip()
             if normalized in self.instrument_map:
-                instruments.append(self.instrument_map[normalized])
+                info = self.instrument_map[normalized]
+                if normalized == "drums" and self.indian_percussion_mode:
+                    info = InstrumentInfo(
+                        name="Indian Percussion",
+                        family=InstrumentFamily.DRUMS,
+                        clef="percussion",
+                        is_percussion=True,
+                        confidence=0.95,
+                    )
+                instruments.append(info)
             else:
                 # Unknown stem — assign generic melodic instrument
                 instruments.append(

@@ -109,8 +109,18 @@ class PipelineOrchestrator:
             # Stage 2: Source Separation
             _report(PipelineStage.SEPARATING, 0.0, "Separating audio into stems...")
             stems = self.separator.separate(processed.file_path)
+            
+            if not self.config.transcribe_vocals and "vocals" in stems:
+                del stems["vocals"]
+                
             _report(PipelineStage.SEPARATING, 1.0,
                     f"Separated into {len(stems)} stems: {list(stems.keys())}")
+
+            # Detect global tempo
+            _report(PipelineStage.PREPROCESSING, 1.0, "Detecting global tempo...")
+            from ml_pipeline.quantizer import detect_tempo
+            global_tempo = detect_tempo(processed.file_path)
+            _report(PipelineStage.PREPROCESSING, 1.0, f"Detected tempo: {global_tempo.bpm:.1f} BPM")
 
             # Stage 3: Instrument Detection
             _report(PipelineStage.DETECTING, 0.0, "Detecting instruments...")
@@ -131,12 +141,13 @@ class PipelineOrchestrator:
                 _report(PipelineStage.TRANSCRIBING, frac,
                         f"Transcribing {instrument.name}...")
                 transcription = self.transcriber.transcribe(stem_path, instrument)
+                transcription.tempo_info = global_tempo
 
                 # Quantize
                 _report(PipelineStage.QUANTIZING, frac,
                         f"Quantizing {instrument.name} ({len(transcription.notes)} notes)...")
                 quantized_notes = self.quantizer.quantize(
-                    transcription.notes, transcription.tempo_info
+                    transcription.notes, global_tempo
                 )
 
                 part = InstrumentPart(
@@ -182,6 +193,7 @@ class PipelineOrchestrator:
                     "num_stems": len(stems),
                     "total_notes": sum(len(p.notes) for p in instrument_parts),
                     "processing_time_seconds": round(elapsed, 2),
+                    "global_bpm": global_tempo.bpm,
                 },
             )
 
@@ -226,8 +238,40 @@ class PipelineOrchestrator:
         return cls(
             preprocessor=BasicPreprocessor(config),
             separator=MockSeparator(config),
-            detector=StemBasedDetector(),
+            detector=StemBasedDetector(indian_percussion_mode=config.indian_percussion_mode),
             transcriber=MockTranscriber(),
+            quantizer=SimpleQuantizer(config),
+            score_generator=Music21ScoreGenerator(config),
+            config=config,
+        )
+
+    @classmethod
+    def create_real(
+        cls,
+        config: PipelineConfig | None = None,
+    ) -> PipelineOrchestrator:
+        """Create an orchestrator with real ML models.
+
+        Args:
+            config: Optional pipeline configuration override.
+
+        Returns:
+            A fully configured PipelineOrchestrator with real models.
+        """
+        from ml_pipeline.preprocessor import BasicPreprocessor
+        from ml_pipeline.separator import DemucsSeparator
+        from ml_pipeline.instrument_detector import StemBasedDetector
+        from ml_pipeline.transcriber import BasicPitchTranscriber
+        from ml_pipeline.quantizer import SimpleQuantizer
+        from ml_pipeline.score_generator import Music21ScoreGenerator
+
+        config = config or PipelineConfig()
+
+        return cls(
+            preprocessor=BasicPreprocessor(config),
+            separator=DemucsSeparator(config),
+            detector=StemBasedDetector(indian_percussion_mode=config.indian_percussion_mode),
+            transcriber=BasicPitchTranscriber(),
             quantizer=SimpleQuantizer(config),
             score_generator=Music21ScoreGenerator(config),
             config=config,

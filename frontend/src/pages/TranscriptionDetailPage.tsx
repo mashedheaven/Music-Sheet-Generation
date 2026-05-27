@@ -33,6 +33,12 @@ export const TranscriptionDetailPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedStem, setSelectedStem] = useState<Stem | null>(null);
+  const [audioTime, setAudioTime] = useState<number>(0);
+
+  // When switching stems, reset audio time
+  useEffect(() => {
+    setAudioTime(0);
+  }, [selectedStem]);
   const [deleting, setDeleting] = useState(false);
 
   // SSE progress for live updates
@@ -109,8 +115,9 @@ export const TranscriptionDetailPage: React.FC = () => {
   const stemScores = selectedStem
     ? job.stems.find(s => s.id === selectedStem.id)?.scores ?? []
     : [];
-  const ensembleScores = (job as any).scores?.filter((s: Score) => s.is_ensemble) ?? [];
-  const musicxmlScore = stemScores.find((s: Score) => s.format === 'musicxml');
+  const ensembleScores = job.scores?.filter((s: Score) => s.is_ensemble) ?? [];
+  const currentScores = selectedStem ? stemScores : ensembleScores;
+  const musicxmlScore = currentScores.find((s: Score) => s.format === 'musicxml');
 
   return (
     <div className="detail-page">
@@ -227,7 +234,10 @@ export const TranscriptionDetailPage: React.FC = () => {
               <h3 style={{ marginBottom: '0.75rem' }}>
                 {getInstrumentEmoji(selectedStem.instrument_family)} {selectedStem.instrument_name} — Audio
               </h3>
-              <AudioPlayer audioUrl={getStemAudioUrl(selectedStem.id)} />
+              <AudioPlayer 
+                audioUrl={getStemAudioUrl(selectedStem.id)} 
+                onTimeUpdate={setAudioTime}
+              />
             </div>
           )}
 
@@ -239,14 +249,18 @@ export const TranscriptionDetailPage: React.FC = () => {
                 : '🎼 Ensemble Score'}
             </h3>
             <div className="score-viewer-container">
-              {musicxmlScore ? (
-                <ScoreViewer musicxmlUrl={getScoreDownloadUrl(musicxmlScore.id)} />
+              {musicxmlScore && selectedStem ? (
+                <ScoreViewer 
+                  musicxmlUrl={getScoreDownloadUrl(musicxmlScore.id)}
+                  allowTranspose={selectedStem.instrument_family !== 'percussion'}
+                  currentTime={audioTime}
+                />
               ) : (
                 <div className="score-viewer-placeholder">
-                  <span className="score-viewer-placeholder__icon">𝄞</span>
-                  <p>{selectedStem ? 'Sheet music for this instrument' : 'Combined ensemble score'}</p>
-                  <p className="text-sm text-secondary mt-2">
-                    Score rendering will be connected in the next iteration
+                  <span className="score-viewer-placeholder__icon">🎼</span>
+                  <p>Ensemble Score Overview</p>
+                  <p className="text-sm text-secondary mt-2" style={{ maxWidth: '400px', margin: '0.5rem auto 0' }}>
+                    The combined ensemble score is too complex for browser rendering. Please download the MusicXML or MIDI file below and open it in desktop notation software like MuseScore 4 or Sibelius.
                   </p>
                 </div>
               )}
@@ -255,7 +269,7 @@ export const TranscriptionDetailPage: React.FC = () => {
 
           {/* Downloads */}
           <div className="downloads">
-            {stemScores.map((score: Score) => (
+            {currentScores.map((score: Score) => (
               <a
                 key={score.id}
                 href={getScoreDownloadUrl(score.id)}
@@ -265,7 +279,7 @@ export const TranscriptionDetailPage: React.FC = () => {
                 {score.format === 'musicxml' ? '📄' : '🎹'} Download {score.format.toUpperCase()}
               </a>
             ))}
-            {ensembleScores.map((score: Score) => (
+            {selectedStem && ensembleScores.map((score: Score) => (
               <a
                 key={score.id}
                 href={getScoreDownloadUrl(score.id)}

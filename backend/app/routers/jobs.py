@@ -28,6 +28,8 @@ async def create_job(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="Audio file to transcribe"),
     title: str | None = Form(default=None, description="Song title (optional)"),
+    transcribe_vocals: bool = Form(default=True, description="Whether to transcribe the vocal stem"),
+    indian_percussion_mode: bool = Form(default=False, description="Map drums to Indian Percussion"),
     db: Session = Depends(get_db),
 ) -> JobResponse:
     """
@@ -53,7 +55,9 @@ async def create_job(
         )
 
     # Create the job (saves file and DB record)
-    job = await job_service.create_job(db, file, title)
+    job = await job_service.create_job(
+        db, file, title, transcribe_vocals=transcribe_vocals, indian_percussion_mode=indian_percussion_mode
+    )
 
     # Double-check file size after save (in case size header was absent)
     if job.file_size_bytes > settings.MAX_FILE_SIZE_BYTES:

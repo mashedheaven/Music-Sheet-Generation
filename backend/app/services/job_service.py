@@ -14,7 +14,13 @@ from app.services.file_service import delete_job_files, save_upload
 logger = logging.getLogger(__name__)
 
 
-async def create_job(db: Session, file: UploadFile, title: str | None = None) -> Job:
+async def create_job(
+    db: Session, 
+    file: UploadFile, 
+    title: str | None = None,
+    transcribe_vocals: bool = True,
+    indian_percussion_mode: bool = False
+) -> Job:
     """
     Create a new transcription job from an uploaded audio file.
 
@@ -22,6 +28,8 @@ async def create_job(db: Session, file: UploadFile, title: str | None = None) ->
         db: Database session.
         file: Uploaded audio file.
         title: Optional song title; defaults to the filename without extension.
+        transcribe_vocals: Whether to transcribe vocals.
+        indian_percussion_mode: Whether to enable indian percussion mode.
 
     Returns:
         The created Job ORM instance.
@@ -38,6 +46,8 @@ async def create_job(db: Session, file: UploadFile, title: str | None = None) ->
         original_filename=original_filename,
         audio_path="",  # Will be updated after saving
         file_size_bytes=0,  # Will be updated after saving
+        transcribe_vocals=transcribe_vocals,
+        indian_percussion_mode=indian_percussion_mode,
     )
     db.add(job)
     db.flush()  # Generate the ID without committing

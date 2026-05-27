@@ -299,8 +299,8 @@ class MockTranscriber(AudioTranscriber):
 class BasicPitchTranscriber(AudioTranscriber):
     """Audio transcriber using Spotify's Basic Pitch model.
 
-    This class provides the interface structure for Basic Pitch integration.
-    The actual model inference is not implemented yet.
+    Basic Pitch predicts MIDI notes from monophonic or polyphonic audio.
+    It works best for melodic instruments (vocals, guitar, piano, bass).
     """
 
     def transcribe(
@@ -312,12 +312,78 @@ class BasicPitchTranscriber(AudioTranscriber):
             audio_path: Path to the audio stem.
             instrument: Instrument metadata.
 
-        Raises:
-            NotImplementedError: Always — Basic Pitch integration pending.
+        Returns:
+            TranscriptionResult with notes predicted by Basic Pitch.
         """
-        raise NotImplementedError(
-            "BasicPitchTranscriber is not yet implemented. "
-            "To use real transcription, install basic-pitch:\n"
-            "  pip install basic-pitch\n"
-            "For now, use MockTranscriber for testing."
+        import librosa
+        from basic_pitch.inference import predict
+        from basic_pitch import ICASSP_2022_MODEL_PATH
+
+        if instrument.is_percussion:
+            # Basic Pitch is not designed for percussion.
+            # In a real system we would use madmom or onset detection here.
+            # For this MVP, we will fallback to a simple onset detector using librosa.
+            return self._transcribe_percussion(audio_path, instrument)
+
+        # Run Basic Pitch prediction
+        # Returns: model_output, midi_data, note_events
+        # note_events is a list of tuples: (start_time_s, end_time_s, pitch_midi, amplitude, pitch_bends)
+        _, _, note_events = predict(
+            str(audio_path),
+            ICASSP_2022_MODEL_PATH,
+            onset_threshold=0.5,
+            frame_threshold=0.3,
+            minimum_note_length=11,
+            minimum_frequency=None,
+            maximum_frequency=None,
+        )
+
+        notes: List[Note] = []
+        for start_s, end_s, pitch_midi, amplitude, _ in note_events:
+            notes.append(Note(
+                pitch=int(round(pitch_midi)),
+                onset=float(start_s),
+                offset=float(end_s),
+                velocity=int(min(max(amplitude * 127, 0), 127)),
+                channel=0,
+            ))
+
+        # Basic Pitch does not detect tempo, we just provide a default placeholder here
+        # The Orchestrator will use the quantizer to detect the real tempo for the whole track.
+        tempo_info = TempoInfo()
+
+        return TranscriptionResult(
+            notes=notes,
+            instrument=instrument,
+            tempo_info=tempo_info,
+        )
+
+    def _transcribe_percussion(self, audio_path: Path, instrument: InstrumentInfo) -> TranscriptionResult:
+        """Simple onset-based drum transcription for MVP."""
+        import librosa
+        import numpy as np
+
+        y, sr = librosa.load(str(audio_path), sr=None)
+        
+        # Detect onsets
+        onset_frames = librosa.onset.onset_detect(y=y, sr=sr, wait=1, pre_avg=1, post_avg=1, pre_max=1, post_max=1)
+        onset_times = librosa.frames_to_time(onset_frames, sr=sr)
+        
+        notes: List[Note] = []
+        for onset in onset_times:
+            # Simple heuristic: we just map everything to a closed hi-hat or snare for the MVP
+            # A more sophisticated model would classify the drum hit type.
+            notes.append(Note(
+                pitch=42,  # Closed hi-hat GM midi
+                onset=float(onset),
+                offset=float(onset) + 0.1,  # 100ms duration
+                velocity=100,
+                channel=9,
+            ))
+            
+        tempo_info = TempoInfo()
+        return TranscriptionResult(
+            notes=notes,
+            instrument=instrument,
+            tempo_info=tempo_info,
         )

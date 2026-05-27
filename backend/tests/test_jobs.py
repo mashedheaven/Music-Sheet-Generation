@@ -15,7 +15,7 @@ class TestCreateJob:
         response = client.post(
             "/api/jobs",
             files={"file": ("test_song.wav", io.BytesIO(sample_wav_bytes), "audio/wav")},
-            data={"title": "My Test Song"},
+            data={"title": "My Test Song", "transcribe_vocals": "false", "indian_percussion_mode": "true"},
         )
         assert response.status_code == 201
         data = response.json()
@@ -24,6 +24,8 @@ class TestCreateJob:
         assert data["original_filename"] == "test_song.wav"
         assert data["file_size_bytes"] > 0
         assert data["progress"] == 0.0
+        assert data["transcribe_vocals"] is False
+        assert data["indian_percussion_mode"] is True
         assert "id" in data
 
     def test_create_job_default_title(self, client: TestClient, sample_wav_bytes: bytes):

@@ -87,9 +87,6 @@ class MockSeparator(AudioSeparator):
 class DemucsSeparator(AudioSeparator):
     """Source separator using Meta's Demucs model.
 
-    This class provides the interface structure for Demucs integration.
-    The actual model loading and inference is not implemented yet.
-
     Attributes:
         config: Pipeline configuration.
         model_name: Name of the Demucs model to use.
@@ -98,6 +95,23 @@ class DemucsSeparator(AudioSeparator):
     def __init__(self, config: PipelineConfig | None = None) -> None:
         self.config = config or PipelineConfig()
         self.model_name = self.config.separator_model
+        self._separator = None
+
+    def _load_model(self):
+        """Lazy load the Demucs model."""
+        if self._separator is None:
+            import torch
+            from demucs.api import Separator
+
+            # Determine device (MPS for Apple Silicon, CUDA for NVIDIA, CPU otherwise)
+            device = "cpu"
+            if self.config.use_gpu:
+                if torch.cuda.is_available():
+                    device = "cuda"
+                elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                    device = "mps"
+
+            self._separator = Separator(model=self.model_name, device=device)
 
     def separate(self, audio_path: Path) -> Dict[str, Path]:
         """Separate audio using the Demucs model.
@@ -107,14 +121,35 @@ class DemucsSeparator(AudioSeparator):
 
         Returns:
             Dictionary mapping stem names to separated audio file paths.
-
-        Raises:
-            NotImplementedError: Always — Demucs integration is not yet complete.
         """
-        raise NotImplementedError(
-            f"DemucsSeparator is not yet implemented. "
-            f"To use real source separation, install demucs:\n"
-            f"  pip install demucs\n"
-            f"Model configured: {self.model_name}\n"
-            f"For now, use MockSeparator for testing."
-        )
+        import soundfile as sf
+        
+        self.config.ensure_directories()
+        assert self.config.stems_dir is not None
+
+        audio_path = Path(audio_path)
+        if not audio_path.exists():
+            raise FileNotFoundError(f"Audio file not found: {audio_path}")
+
+        self._load_model()
+        assert self._separator is not None
+
+        # Process the audio file using demucs api
+        origin, separated = self._separator.separate_audio_file(str(audio_path))
+        
+        stems: Dict[str, Path] = {}
+        for stem_name, source in separated.items():
+            stem_path = self.config.stems_dir / f"{audio_path.stem}_{stem_name}.wav"
+            
+            # Demucs outputs as dict of tensors [channels, samples]
+            # soundfile expects [samples, channels]
+            audio_data = source.cpu().numpy().T
+            
+            sf.write(
+                str(stem_path),
+                audio_data,
+                self._separator._samplerate
+            )
+            stems[stem_name] = stem_path
+
+        return stems

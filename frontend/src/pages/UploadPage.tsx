@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { createJob } from '../api/client';
 import { Button } from '../components/common/Button';
 import { ProgressBar } from '../components/common/ProgressBar';
@@ -18,7 +19,10 @@ export const UploadPage: React.FC = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+  
+  // Job options
+  const [transcribeVocals, setTranscribeVocals] = useState(true);
+  const [indianPercussionMode, setIndianPercussionMode] = useState(false);
 
   const validateFile = useCallback((file: File): string | null => {
     const ext = '.' + file.name.split('.').pop()?.toLowerCase();
@@ -32,10 +36,9 @@ export const UploadPage: React.FC = () => {
   }, []);
 
   const handleFile = useCallback((file: File) => {
-    setError(null);
     const validationError = validateFile(file);
     if (validationError) {
-      setError(validationError);
+      toast.error(validationError);
       return;
     }
     setSelectedFile(file);
@@ -67,16 +70,22 @@ export const UploadPage: React.FC = () => {
     if (!selectedFile) return;
     setUploading(true);
     setUploadProgress(0);
-    setError(null);
 
     try {
-      const job = await createJob(selectedFile, undefined, (percent) => {
-        setUploadProgress(percent);
-      });
+      const job = await createJob(
+        selectedFile, 
+        undefined, 
+        transcribeVocals,
+        indianPercussionMode,
+        (percent) => {
+          setUploadProgress(percent);
+        }
+      );
+      toast.success('Upload complete! Starting processing...');
       navigate(`/jobs/${job.id}`);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Upload failed. Please try again.';
-      setError(message);
+      toast.error(message);
       setUploading(false);
     }
   };
@@ -84,7 +93,6 @@ export const UploadPage: React.FC = () => {
   const handleReset = () => {
     setSelectedFile(null);
     setUploadProgress(0);
-    setError(null);
     setUploading(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -143,6 +151,30 @@ export const UploadPage: React.FC = () => {
             )}
           </div>
 
+          {!uploading && (
+            <div className="upload-options" style={{ margin: '1.5rem 0', display: 'flex', gap: '1.5rem', justifyContent: 'center' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                <input 
+                  type="checkbox" 
+                  checked={transcribeVocals} 
+                  onChange={(e) => setTranscribeVocals(e.target.checked)}
+                  style={{ accentColor: 'var(--primary)' }}
+                />
+                <span className="text-sm">Transcribe Vocals</span>
+              </label>
+              
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                <input 
+                  type="checkbox" 
+                  checked={indianPercussionMode} 
+                  onChange={(e) => setIndianPercussionMode(e.target.checked)}
+                  style={{ accentColor: 'var(--primary)' }}
+                />
+                <span className="text-sm">Indian Percussion Mode</span>
+              </label>
+            </div>
+          )}
+
           {uploading && (
             <>
               <ProgressBar value={uploadProgress} showLabel />
@@ -162,13 +194,6 @@ export const UploadPage: React.FC = () => {
               </Button>
             </div>
           )}
-        </div>
-      )}
-
-      {/* ── Error ───────────────────────────────────────────────────────── */}
-      {error && (
-        <div className="upload-error">
-          ⚠️ {error}
         </div>
       )}
     </div>

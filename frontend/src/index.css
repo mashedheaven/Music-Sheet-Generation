@@ -1034,3 +1034,25 @@ p { color: var(--text-secondary); }
   .instruments-grid { grid-template-columns: repeat(2, 1fr); }
   h1 { font-size: 1.75rem; }
 }
+
+/* ==========================================================================
+   Print Styles
+   ========================================================================== */
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-container, .print-container * {
+    visibility: visible;
+  }
+  .print-container {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+  .btn, .btn-icon, .transpose-controls, .score-viewer__header, .detail-header, .instruments-grid, .audio-section {
+    display: none !important;
+  }
+}

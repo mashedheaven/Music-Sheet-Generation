@@ -13,11 +13,15 @@ const api = axios.create({
 export async function createJob(
   file: File,
   title?: string,
+  transcribeVocals: boolean = true,
+  indianPercussionMode: boolean = false,
   onProgress?: (percent: number) => void,
 ): Promise<Job> {
   const form = new FormData();
   form.append('file', file);
   if (title) form.append('title', title);
+  form.append('transcribe_vocals', String(transcribeVocals));
+  form.append('indian_percussion_mode', String(indianPercussionMode));
 
   const { data } = await api.post<Job>('/api/jobs', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -50,15 +54,15 @@ export async function deleteJob(jobId: string): Promise<void> {
 // ── URL Builders ─────────────────────────────────────────────────────────────
 
 export function getStemAudioUrl(stemId: string): string {
-  return `${api.defaults.baseURL}/api/stems/${stemId}/audio`;
+  return `${api.defaults.baseURL}/api/files/stems/${stemId}/audio`;
 }
 
 export function getScoreDownloadUrl(scoreId: string): string {
-  return `${api.defaults.baseURL}/api/scores/${scoreId}/download`;
+  return `${api.defaults.baseURL}/api/files/scores/${scoreId}/download`;
 }
 
 export function getOriginalAudioUrl(jobId: string): string {
-  return `${api.defaults.baseURL}/api/jobs/${jobId}/audio`;
+  return `${api.defaults.baseURL}/api/files/jobs/${jobId}/original`;
 }
 
 export default api;

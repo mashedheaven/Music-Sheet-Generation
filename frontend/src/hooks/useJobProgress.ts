@@ -35,7 +35,7 @@ export function useJobProgress(
     const es = new EventSource(url);
     esRef.current = es;
 
-    es.onmessage = (event) => {
+    const handleProgress = (event: MessageEvent) => {
       try {
         const data: JobProgressEvent = JSON.parse(event.data);
         setStatus(data.status);
@@ -43,23 +43,37 @@ export function useJobProgress(
         setMessage(data.message);
         setStage(data.stage);
         retryRef.current = 1000; // reset backoff on success
-
-        // Close when terminal
-        if (data.status === 'complete' || data.status === 'failed') {
-          es.close();
-        }
       } catch {
         // ignore malformed data
       }
     };
 
-    es.onerror = () => {
+    const handleTerminal = (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data);
+        setStatus(data.status);
+        if (data.status === 'complete') setProgress(1);
+        es.close();
+      } catch {
+        es.close();
+      }
+    };
+
+    es.addEventListener('progress', handleProgress);
+    es.addEventListener('complete', handleTerminal);
+    es.addEventListener('error', (event: any) => {
+      // If it's a stream error event with data
+      if (event.data) {
+         handleTerminal(event);
+         return;
+      }
+      
       es.close();
       // Reconnect with exponential back-off
       const delay = retryRef.current;
       retryRef.current = Math.min(delay * 2, 10_000);
       setTimeout(connect, delay);
-    };
+    });
   }, [jobId, enabled]);
 
   useEffect(() => {

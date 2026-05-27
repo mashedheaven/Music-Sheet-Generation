@@ -38,6 +38,8 @@ class PipelineConfig:
     stems_dir: Optional[Path] = None
     use_gpu: bool = False
     separator_model: str = "htdemucs"
+    transcribe_vocals: bool = True
+    indian_percussion_mode: bool = False
 
     def __post_init__(self) -> None:
         """Set derived defaults and validate configuration."""
