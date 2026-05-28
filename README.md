@@ -1,6 +1,6 @@
-# 🎵 ScoreForge — Music Sheet Generation
+# 🎵 Musheet — Music Sheet Generation
 
-> **Transform any song into per-instrument sheet music.** Upload an audio file, and ScoreForge separates it into individual instrument stems, transcribes each to musical notation, and generates downloadable scores.
+> **Transform any song into per-instrument sheet music.** Upload an audio file, and Musheet separates it into individual instrument stems, transcribes each to musical notation, and generates downloadable scores.
 
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-green.svg)](https://fastapi.tiangolo.com/)
