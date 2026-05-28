@@ -56,6 +56,7 @@ class Note:
     offset: float
     velocity: int = 80
     channel: int = 0
+    lyric: Optional[str] = None
 
     def __post_init__(self) -> None:
         if not 0 <= self.pitch <= 127:

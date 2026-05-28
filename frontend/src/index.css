@@ -878,8 +878,22 @@ p { color: var(--text-secondary); }
 }
 
 .score-viewer-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
   text-align: center;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
+}
+
+.score-viewer__canvas {
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 2rem;
+  overflow-y: auto;
+  max-height: 800px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 
 .score-viewer-placeholder__icon {

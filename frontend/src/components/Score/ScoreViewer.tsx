@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
+import { FileMusic, Printer } from 'lucide-react';
 
 interface ScoreViewerProps {
   musicxmlUrl: string;
@@ -21,8 +22,6 @@ export const ScoreViewer: React.FC<ScoreViewerProps> = ({
   const [transpose, setTranspose] = useState(0);
 
   // Measure BPM parsing could be done, but we'll use a standard 120BPM for MVP since that's what Basic Pitch exports
-  const BPM = 120;
-  const BEATS_PER_SECOND = BPM / 60; // 2 beats per second
 
   useEffect(() => {
     if (!containerRef.current || !musicxmlUrl) return;
@@ -119,10 +118,10 @@ export const ScoreViewer: React.FC<ScoreViewerProps> = ({
   };
 
   return (
-    <div className="score-viewer glass-card">
+    <div className="score-viewer glass-card" style={{ position: 'relative' }}>
       <div className="score-viewer__header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <span className="score-viewer__icon">🎼</span>
+          <FileMusic size={24} className="score-viewer__icon" />
           <h3 className="score-viewer__title" style={{ margin: 0 }}>{instrumentName ?? 'Score'}</h3>
         </div>
         
@@ -137,16 +136,16 @@ export const ScoreViewer: React.FC<ScoreViewerProps> = ({
           )}
           
           {!loading && !error && (
-            <button onClick={handlePrint} className="btn-icon" title="Print to PDF">
-              🖨️ Print
+            <button onClick={handlePrint} className="btn-icon" title="Print to PDF" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+              <Printer size={16} /> Print
             </button>
           )}
         </div>
       </div>
       
       {loading && (
-        <div className="score-viewer__loading">
-          <p>Rendering score...</p>
+        <div className="score-viewer__loading" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(10, 14, 26, 0.8)', zIndex: 10, backdropFilter: 'blur(4px)', borderRadius: '12px' }}>
+          <p style={{ fontWeight: 600 }}>Rendering sheet music...</p>
         </div>
       )}
       
@@ -157,11 +156,17 @@ export const ScoreViewer: React.FC<ScoreViewerProps> = ({
       )}
 
       {/* The print-container class ensures only this gets printed if we setup CSS for it */}
-      <div 
-        ref={containerRef} 
-        className="score-viewer__canvas print-container"
-        style={{ display: loading || error ? 'none' : 'block', marginTop: '1rem' }}
-      />
+      <div style={{ width: '100%', overflowX: 'auto', marginTop: '1rem' }}>
+        <div 
+          ref={containerRef} 
+          className="score-viewer__canvas print-container"
+          style={{ 
+            opacity: loading ? 0 : 1,
+            transition: 'opacity 0.3s ease-in-out',
+            minWidth: '800px'
+          }}
+        />
+      </div>
     </div>
   );
 };

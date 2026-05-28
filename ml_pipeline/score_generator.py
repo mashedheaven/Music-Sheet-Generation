@@ -251,6 +251,8 @@ class Music21ScoreGenerator(ScoreGenerator):
                 duration_ql = self._seconds_to_quarter_lengths(pn.duration)
                 m21_note = m21note.Note(pn.pitch, quarterLength=duration_ql)
                 m21_note.volume.velocity = pn.velocity
+                if pn.lyric:
+                    m21_note.lyric = pn.lyric
                 part.insert(self._seconds_to_offset(onset), m21_note)
             else:
                 # Chord — group of simultaneous notes
@@ -261,6 +263,10 @@ class Music21ScoreGenerator(ScoreGenerator):
 
                 m21_chord = m21chord.Chord(pitches, quarterLength=duration_ql)
                 m21_chord.volume.velocity = group[0].velocity
+                # Use the lyric from the first note in the chord if any
+                first_lyric = next((n.lyric for n in group if n.lyric), None)
+                if first_lyric:
+                    m21_chord.lyric = first_lyric
                 part.insert(self._seconds_to_offset(onset), m21_chord)
 
     def _add_percussion_notes(

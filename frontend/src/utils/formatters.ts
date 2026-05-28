@@ -44,33 +44,6 @@ export function formatRelativeTime(date: string): string {
 }
 
 /**
- * Map instrument family to an emoji icon.
- */
-export function getInstrumentEmoji(family: string): string {
-  const map: Record<string, string> = {
-    guitar: '🎸',
-    bass: '🎸',
-    drums: '🥁',
-    percussion: '🥁',
-    piano: '🎹',
-    keyboard: '🎹',
-    keys: '🎹',
-    vocals: '🎤',
-    voice: '🎤',
-    strings: '🎻',
-    violin: '🎻',
-    cello: '🎻',
-    brass: '🎺',
-    trumpet: '🎺',
-    woodwind: '🪈',
-    flute: '🪈',
-    saxophone: '🎷',
-    other: '🎵',
-  };
-  return map[family.toLowerCase()] ?? '🎵';
-}
-
-/**
  * Map job status to a CSS color variable class name.
  */
 export function getStatusColor(status: string): string {

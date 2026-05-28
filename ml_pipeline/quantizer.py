@@ -63,6 +63,7 @@ class SimpleQuantizer(NoteQuantizer):
                 offset=round(q_offset, 10),
                 velocity=note.velocity,
                 channel=note.channel,
+                lyric=note.lyric,
             ))
 
         return quantized

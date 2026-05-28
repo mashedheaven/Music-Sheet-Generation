@@ -348,15 +348,73 @@ class BasicPitchTranscriber(AudioTranscriber):
                 channel=0,
             ))
 
-        # Basic Pitch does not detect tempo, we just provide a default placeholder here
-        # The Orchestrator will use the quantizer to detect the real tempo for the whole track.
         tempo_info = TempoInfo()
+
+        if instrument.family == InstrumentFamily.VOCALS:
+            notes = self._transcribe_lyrics(audio_path, notes)
 
         return TranscriptionResult(
             notes=notes,
             instrument=instrument,
             tempo_info=tempo_info,
         )
+
+    def _transcribe_lyrics(self, audio_path: Path, notes: List[Note]) -> List[Note]:
+        """Transcribe lyrics using Whisper and align them to notes."""
+        import whisper
+        import warnings
+        
+        # Suppress warnings from Whisper/FP16 if on CPU
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            # Using 'base' model for decent speed/accuracy tradeoff
+            model = whisper.load_model("base")
+            # Word-level timestamps require word_timestamps=True
+            result = model.transcribe(str(audio_path), word_timestamps=True)
+
+        if not result.get("segments"):
+            return notes
+
+        words = []
+        for segment in result["segments"]:
+            for word_info in segment.get("words", []):
+                words.append(word_info)
+
+        if not words:
+            return notes
+
+        # Simple alignment: assign each word to the first note that falls within its timestamp,
+        # or the closest note.
+        for word_info in words:
+            word_text = word_info["word"].strip()
+            word_start = word_info["start"]
+            word_end = word_info["end"]
+            
+            if not word_text:
+                continue
+
+            # Find the best note for this word
+            # We look for a note whose onset is close to the word start
+            best_note = None
+            min_dist = float('inf')
+            
+            for note in notes:
+                # If note already has a lyric, skip it
+                if note.lyric:
+                    continue
+                    
+                # Calculate distance between word start and note onset
+                dist = abs(note.onset - word_start)
+                
+                # If the note starts roughly around the same time as the word
+                if dist < 0.5 and dist < min_dist:
+                    min_dist = dist
+                    best_note = note
+                    
+            if best_note:
+                best_note.lyric = word_text
+                
+        return notes
 
     def _transcribe_percussion(self, audio_path: Path, instrument: InstrumentInfo) -> TranscriptionResult:
         """Simple onset-based drum transcription for MVP."""

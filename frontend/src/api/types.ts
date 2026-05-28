@@ -12,11 +12,9 @@ export type JobStatus =
 // ── Score ────────────────────────────────────────────────────────────────────
 export interface Score {
   id: string;
-  instrument_name: string;
-  instrument_family: string;
-  format: 'musicxml' | 'midi';
-  file_path: string;
-  created_at: string;
+  stem_id: string | null;
+  format: 'musicxml' | 'midi' | 'pdf';
+  download_url: string;
   is_ensemble: boolean;
 }
 
@@ -25,9 +23,10 @@ export interface Stem {
   id: string;
   instrument_name: string;
   instrument_family: string;
+  clef: string;
+  is_percussion: boolean;
   confidence: number;
-  audio_path: string;
-  scores: Score[];
+  audio_url: string | null;
 }
 
 // ── Job (full detail) ────────────────────────────────────────────────────────
@@ -36,10 +35,13 @@ export interface Job {
   title: string;
   status: JobStatus;
   progress: number;
-  message: string;
+  progress_message: string | null;
+  error_message: string | null;
   original_filename: string;
-  file_size: number;
-  duration: number | null;
+  file_size_bytes: number;
+  duration_seconds: number | null;
+  transcribe_vocals: boolean;
+  indian_percussion_mode: boolean;
   stems: Stem[];
   scores: Score[];
   created_at: string;
@@ -52,7 +54,7 @@ export interface JobSummary {
   title: string;
   status: JobStatus;
   progress: number;
-  message: string;
+  progress_message: string | null;
   original_filename: string;
   instrument_count: number;
   created_at: string;

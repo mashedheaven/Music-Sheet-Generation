@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getJob, deleteJob, getStemAudioUrl, getScoreDownloadUrl } from '../api/client';
+import { getJob, deleteJob, getStemAudioUrl, getScoreDownloadUrl, getOriginalAudioUrl } from '../api/client';
 import type { Job, Stem, Score } from '../api/types';
 import { useJobProgress } from '../hooks/useJobProgress';
 import { Button } from '../components/common/Button';
@@ -9,20 +9,39 @@ import { ProgressBar } from '../components/common/ProgressBar';
 import { Spinner } from '../components/common/Spinner';
 import { ScoreViewer } from '../components/Score/ScoreViewer';
 import { AudioPlayer } from '../components/Audio/AudioPlayer';
-import { formatRelativeTime, formatFileSize, getInstrumentEmoji } from '../utils/formatters';
+import { formatRelativeTime, formatFileSize } from '../utils/formatters';
+import { getInstrumentIcon } from '../utils/icons';
+import {
+  Upload as UploadIcon,
+  Split,
+  FileMusic,
+  PenTool,
+  CheckCircle2,
+  Check,
+  AlertCircle,
+  XCircle,
+  ArrowLeft,
+  Layers,
+  FileText,
+  FileAudio
+} from 'lucide-react';
 
 // ── Pipeline stages for the stepper ──────────────────────────────────────────
 const PIPELINE_STAGES = [
-  { key: 'uploading',    label: 'Upload',     icon: '📤' },
-  { key: 'separating',   label: 'Separate',   icon: '🎛️' },
-  { key: 'transcribing', label: 'Transcribe', icon: '🎼' },
-  { key: 'generating',   label: 'Score',      icon: '📝' },
-  { key: 'complete',     label: 'Done',       icon: '✅' },
+  { key: 'uploading',    label: 'Upload',     icon: <UploadIcon size={16} /> },
+  { key: 'separating',   label: 'Separate',   icon: <Split size={16} /> },
+  { key: 'transcribing', label: 'Transcribe', icon: <FileMusic size={16} /> },
+  { key: 'generating',   label: 'Score',      icon: <PenTool size={16} /> },
+  { key: 'complete',     label: 'Done',       icon: <CheckCircle2 size={16} /> },
 ];
 
 function getStageIndex(status: string): number {
-  const idx = PIPELINE_STAGES.findIndex((s) => s.key === status);
-  return idx >= 0 ? idx : (status === 'processing' ? 1 : 0);
+  if (status === 'uploading' || status === 'processing' || status === 'preprocessing') return 0;
+  if (status === 'separating') return 1;
+  if (status === 'detecting' || status === 'transcribing' || status === 'quantizing') return 2;
+  if (status === 'generating' || status === 'generating_scores') return 3;
+  if (status === 'complete') return 4;
+  return 0;
 }
 
 export const TranscriptionDetailPage: React.FC = () => {
@@ -40,6 +59,7 @@ export const TranscriptionDetailPage: React.FC = () => {
     setAudioTime(0);
   }, [selectedStem]);
   const [deleting, setDeleting] = useState(false);
+  const initialSelectDone = useRef(false);
 
   // SSE progress for live updates
   const progress = useJobProgress(
@@ -53,15 +73,16 @@ export const TranscriptionDetailPage: React.FC = () => {
     try {
       const data = await getJob(jobId);
       setJob(data);
-      if (data.stems.length > 0 && !selectedStem) {
+      if (data.stems.length > 0 && !initialSelectDone.current) {
         setSelectedStem(data.stems[0]);
+        initialSelectDone.current = true;
       }
     } catch {
       setError('Failed to load transcription details.');
     } finally {
       setLoading(false);
     }
-  }, [jobId, selectedStem]);
+  }, [jobId]);
 
   useEffect(() => { fetchJob(); }, [fetchJob]);
 
@@ -96,7 +117,7 @@ export const TranscriptionDetailPage: React.FC = () => {
     return (
       <div className="page-center">
         <div className="empty-state glass-card">
-          <span className="empty-state__icon">😕</span>
+          <AlertCircle size={48} className="empty-state__icon" style={{ opacity: 0.7 }} />
           <h2>Something went wrong</h2>
           <p className="text-secondary">{error || 'Transcription not found.'}</p>
           <Button variant="primary" onClick={() => navigate('/')}>Back to Dashboard</Button>
@@ -108,12 +129,12 @@ export const TranscriptionDetailPage: React.FC = () => {
   const isProcessing = !['complete', 'failed'].includes(job.status);
   const currentStatus = progress.status || job.status;
   const currentProgress = progress.progress ?? job.progress;
-  const currentMessage = progress.message || job.message;
+  const currentMessage = progress.message || job.progress_message;
   const stageIndex = getStageIndex(currentStatus);
 
   // Find scores for selected stem
   const stemScores = selectedStem
-    ? job.stems.find(s => s.id === selectedStem.id)?.scores ?? []
+    ? job.scores?.filter((s: Score) => s.stem_id === selectedStem.id) ?? []
     : [];
   const ensembleScores = job.scores?.filter((s: Score) => s.is_ensemble) ?? [];
   const currentScores = selectedStem ? stemScores : ensembleScores;
@@ -134,15 +155,15 @@ export const TranscriptionDetailPage: React.FC = () => {
             <span className="text-secondary text-sm">
               {formatRelativeTime(job.created_at)}
             </span>
-            {job.file_size > 0 && (
+            {job.file_size_bytes > 0 && (
               <span className="text-secondary text-sm">
-                · {formatFileSize(job.file_size)}
+                · {formatFileSize(job.file_size_bytes)}
               </span>
             )}
           </div>
         </div>
         <div className="detail-page__actions">
-          <Button variant="ghost" onClick={() => navigate('/')}>← Back</Button>
+          <Button variant="ghost" onClick={() => navigate('/')} icon={<ArrowLeft size={16} />}>Back</Button>
           <Button variant="danger" size="sm" onClick={handleDelete} loading={deleting}>
             Delete
           </Button>
@@ -160,8 +181,8 @@ export const TranscriptionDetailPage: React.FC = () => {
                   <div className={`pipeline-step__connector ${i <= stageIndex ? 'pipeline-step__connector--completed' : ''}`} />
                 )}
                 <div className={`pipeline-step ${i < stageIndex ? 'pipeline-step--completed' : ''} ${i === stageIndex ? 'pipeline-step--active' : ''}`}>
-                  <div className="pipeline-step__icon">
-                    {i < stageIndex ? '✓' : stage.icon}
+                  <div className="pipeline-step__icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {i < stageIndex ? <Check size={16} /> : stage.icon}
                   </div>
                   <span className="pipeline-step__label">{stage.label}</span>
                 </div>
@@ -182,7 +203,7 @@ export const TranscriptionDetailPage: React.FC = () => {
       {/* ── Failed View ─────────────────────────────────────────────────── */}
       {job.status === 'failed' && (
         <div className="glass-card" style={{ padding: '2rem', textAlign: 'center' }}>
-          <span style={{ fontSize: '3rem', display: 'block', marginBottom: '1rem' }}>❌</span>
+          <XCircle size={48} className="text-error" style={{ margin: '0 auto 1rem', display: 'block' }} />
           <h2>Transcription Failed</h2>
           <p className="text-secondary mt-2">
             {(job as any).error_message || 'An error occurred during processing.'}
@@ -205,8 +226,8 @@ export const TranscriptionDetailPage: React.FC = () => {
                 className={`glass-card instrument-card ${selectedStem?.id === stem.id ? 'instrument-card--active' : ''}`}
                 onClick={() => setSelectedStem(stem)}
               >
-                <span className="instrument-card__icon">
-                  {getInstrumentEmoji(stem.instrument_family)}
+                <span className="instrument-card__icon" style={{ display: 'flex', justifyContent: 'center' }}>
+                  {getInstrumentIcon(stem.instrument_family, { size: 32 })}
                 </span>
                 <div className="instrument-card__name">{stem.instrument_name}</div>
                 <div className="instrument-card__family">{stem.instrument_family}</div>
@@ -222,45 +243,47 @@ export const TranscriptionDetailPage: React.FC = () => {
               className={`glass-card instrument-card ${selectedStem === null ? 'instrument-card--active' : ''}`}
               onClick={() => setSelectedStem(null)}
             >
-              <span className="instrument-card__icon">🎼</span>
+              <span className="instrument-card__icon" style={{ display: 'flex', justifyContent: 'center' }}>
+                <Layers size={32} />
+              </span>
               <div className="instrument-card__name">Ensemble Score</div>
               <div className="instrument-card__family">All instruments</div>
             </div>
           </div>
 
-          {/* Audio Player for Selected Stem */}
-          {selectedStem && (
-            <div className="score-section">
-              <h3 style={{ marginBottom: '0.75rem' }}>
-                {getInstrumentEmoji(selectedStem.instrument_family)} {selectedStem.instrument_name} — Audio
-              </h3>
-              <AudioPlayer 
-                audioUrl={getStemAudioUrl(selectedStem.id)} 
-                onTimeUpdate={setAudioTime}
-              />
-            </div>
-          )}
+          {/* Audio Player for Selected Stem or Ensemble */}
+          <div className="score-section">
+            <h3 style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              {selectedStem
+                ? <>{getInstrumentIcon(selectedStem.instrument_family, { size: 24 })} {selectedStem.instrument_name} — Audio</>
+                : <><Layers size={24} /> Original Audio</>}
+            </h3>
+            <AudioPlayer 
+              audioUrl={selectedStem ? getStemAudioUrl(selectedStem.id) : getOriginalAudioUrl(job.id)} 
+              onTimeUpdate={setAudioTime}
+            />
+          </div>
 
           {/* Score Viewer */}
           <div className="score-section">
-            <h3 style={{ marginBottom: '0.75rem' }}>
+            <h3 style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               {selectedStem
-                ? `${getInstrumentEmoji(selectedStem.instrument_family)} ${selectedStem.instrument_name} — Sheet Music`
-                : '🎼 Ensemble Score'}
+                ? <>{getInstrumentIcon(selectedStem.instrument_family, { size: 24 })} {selectedStem.instrument_name} — Sheet Music</>
+                : <><Layers size={24} /> Ensemble Score</>}
             </h3>
             <div className="score-viewer-container">
-              {musicxmlScore && selectedStem ? (
+              {musicxmlScore ? (
                 <ScoreViewer 
                   musicxmlUrl={getScoreDownloadUrl(musicxmlScore.id)}
-                  allowTranspose={selectedStem.instrument_family !== 'percussion'}
+                  allowTranspose={selectedStem ? selectedStem.instrument_family !== 'percussion' : false}
                   currentTime={audioTime}
                 />
               ) : (
                 <div className="score-viewer-placeholder">
-                  <span className="score-viewer-placeholder__icon">🎼</span>
-                  <p>Ensemble Score Overview</p>
+                  <Layers size={48} className="score-viewer-placeholder__icon" style={{ opacity: 0.5, margin: '0 auto 1rem', display: 'block' }} />
+                  <p>Score Not Available</p>
                   <p className="text-sm text-secondary mt-2" style={{ maxWidth: '400px', margin: '0.5rem auto 0' }}>
-                    The combined ensemble score is too complex for browser rendering. Please download the MusicXML or MIDI file below and open it in desktop notation software like MuseScore 4 or Sibelius.
+                    There is no MusicXML score available for this selection.
                   </p>
                 </div>
               )}
@@ -274,9 +297,10 @@ export const TranscriptionDetailPage: React.FC = () => {
                 key={score.id}
                 href={getScoreDownloadUrl(score.id)}
                 className="download-btn"
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
                 download
               >
-                {score.format === 'musicxml' ? '📄' : '🎹'} Download {score.format.toUpperCase()}
+                {score.format === 'musicxml' ? <FileText size={16} /> : <FileAudio size={16} />} Download {score.format.toUpperCase()}
               </a>
             ))}
             {selectedStem && ensembleScores.map((score: Score) => (
@@ -284,9 +308,10 @@ export const TranscriptionDetailPage: React.FC = () => {
                 key={score.id}
                 href={getScoreDownloadUrl(score.id)}
                 className="download-btn"
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
                 download
               >
-                🎼 Ensemble {score.format.toUpperCase()}
+                <Layers size={16} /> Ensemble {score.format.toUpperCase()}
               </a>
             ))}
           </div>

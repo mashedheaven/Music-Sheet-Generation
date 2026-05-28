@@ -1,4 +1,5 @@
 import React from 'react';
+import { Music2 } from 'lucide-react';
 
 type SpinnerSize = 'sm' | 'md' | 'lg';
 
@@ -32,7 +33,9 @@ export const Spinner: React.FC<SpinnerProps> = ({ size = 'md', label }) => {
             className="spinner__fill"
           />
         </svg>
-        <span className="spinner__note">♪</span>
+        <span className="spinner__note" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Music2 size={px * 0.4} />
+        </span>
       </div>
       {label && <p className="spinner__label">{label}</p>}
     </div>

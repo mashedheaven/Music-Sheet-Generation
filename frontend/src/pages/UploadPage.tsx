@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import { Upload, FileAudio, X, Play } from 'lucide-react';
 import { createJob } from '../api/client';
 import { Button } from '../components/common/Button';
 import { ProgressBar } from '../components/common/ProgressBar';
@@ -121,7 +122,7 @@ export const UploadPage: React.FC = () => {
             className="upload-zone__input"
             style={{ display: 'none' }}
           />
-          <span className="upload-zone__icon">🎵</span>
+          <Upload size={48} className="upload-zone__icon" style={{ opacity: 0.5, marginBottom: '1rem', display: 'block', margin: '0 auto' }} />
           <p className="upload-zone__text">
             {dragOver ? 'Drop it here!' : 'Drag & drop your audio file'}
           </p>
@@ -139,7 +140,7 @@ export const UploadPage: React.FC = () => {
       {selectedFile && (
         <div className="upload-progress glass-card">
           <div className="upload-progress__file">
-            <span className="upload-progress__file-icon">🎧</span>
+            <FileAudio size={24} className="upload-progress__file-icon text-primary" />
             <div className="upload-progress__file-info">
               <div className="upload-progress__file-name">{selectedFile.name}</div>
               <div className="upload-progress__file-size text-secondary">
@@ -147,7 +148,7 @@ export const UploadPage: React.FC = () => {
               </div>
             </div>
             {!uploading && (
-              <Button variant="ghost" size="sm" onClick={handleReset}>✕</Button>
+              <Button variant="ghost" size="sm" onClick={handleReset} icon={<X size={16} />} />
             )}
           </div>
 
@@ -186,8 +187,8 @@ export const UploadPage: React.FC = () => {
 
           {!uploading && (
             <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', marginTop: '1rem' }}>
-              <Button variant="primary" size="lg" onClick={handleUpload}>
-                🚀 Start Transcription
+              <Button variant="primary" size="lg" onClick={handleUpload} icon={<Play size={20} />}>
+                Start Transcription
               </Button>
               <Button variant="ghost" onClick={handleReset}>
                 Choose Different File

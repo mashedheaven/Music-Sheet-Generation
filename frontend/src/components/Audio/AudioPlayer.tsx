@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import WaveSurfer from 'wavesurfer.js';
+import { Play, Pause } from 'lucide-react';
 
 interface AudioPlayerProps {
   audioUrl: string;
@@ -93,8 +94,9 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ audioUrl, title, onTim
           onClick={togglePlay}
           disabled={!isReady}
           aria-label={isPlaying ? 'Pause' : 'Play'}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
         >
-          {isPlaying ? '⏸' : '▶'}
+          {isPlaying ? <Pause size={16} /> : <Play size={16} />}
         </button>
         <span className="audio-player__time">
           {formatTime(currentTime)} / {formatTime(duration)}

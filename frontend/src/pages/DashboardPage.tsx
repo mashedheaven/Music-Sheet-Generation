@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AlertTriangle, Music, Plus, Music2 } from 'lucide-react';
 import { listJobs } from '../api/client';
 import type { JobSummary } from '../api/types';
 import { Card } from '../components/common/Card';
@@ -36,7 +37,7 @@ export const DashboardPage: React.FC = () => {
     return (
       <div className="page-center">
         <div className="empty-state glass-card">
-          <span className="empty-state__icon">⚠️</span>
+          <AlertTriangle size={48} className="empty-state__icon" style={{ opacity: 0.7 }} />
           <h2>Connection Error</h2>
           <p className="text-secondary">{error}</p>
           <Button variant="primary" onClick={() => window.location.reload()}>
@@ -53,18 +54,21 @@ export const DashboardPage: React.FC = () => {
       <section className="dashboard__hero">
         <div className="dashboard__hero-bg">
           {/* Animated floating notes */}
-          {['♪', '♫', '♩', '♬', '𝄞'].map((note, i) => (
+          {[...Array(5)].map((_, i) => (
             <span
               key={i}
               className="dashboard__floating-note"
               style={{
                 left: `${10 + i * 20}%`,
                 animationDelay: `${i * 1.5}s`,
-                fontSize: `${1.2 + i * 0.3}rem`,
+                width: `${4 + i * 2}px`,
+                height: `${4 + i * 2}px`,
+                borderRadius: '50%',
+                background: 'var(--primary)',
+                opacity: 0.3,
+                boxShadow: '0 0 10px var(--primary)'
               }}
-            >
-              {note}
-            </span>
+            />
           ))}
         </div>
         <h1 className="dashboard__title">Your Music Transcriptions</h1>
@@ -74,7 +78,7 @@ export const DashboardPage: React.FC = () => {
         <Button
           variant="primary"
           size="lg"
-          icon="＋"
+          icon={<Plus size={20} />}
           onClick={() => navigate('/upload')}
           className="dashboard__cta"
         >
@@ -85,7 +89,7 @@ export const DashboardPage: React.FC = () => {
       {/* ── Job List ─────────────────────────────────────────────────────── */}
       {jobs.length === 0 ? (
         <div className="empty-state glass-card">
-          <span className="empty-state__icon">🎶</span>
+          <Music size={48} className="empty-state__icon" style={{ opacity: 0.5 }} />
           <h2>No transcriptions yet</h2>
           <p className="text-secondary">
             Upload your first song and watch the magic happen
@@ -107,9 +111,14 @@ export const DashboardPage: React.FC = () => {
               >
                 <div className="dashboard__job-header">
                   <h3 className="dashboard__job-title">{job.title || job.original_filename}</h3>
-                  <Badge variant={statusToBadgeVariant(job.status)}>
-                    {job.status}
-                  </Badge>
+                  <div className="dashboard__job-status-text">
+                    <Badge variant={statusToBadgeVariant(job.status)}>
+                      {job.status}
+                    </Badge>
+                    {job.status !== 'complete' && job.status !== 'failed' && job.progress_message && (
+                      <span className="text-secondary text-sm">{job.progress_message}</span>
+                    )}
+                  </div>
                 </div>
 
                 {isProcessing && (
@@ -121,17 +130,11 @@ export const DashboardPage: React.FC = () => {
                     {formatRelativeTime(job.created_at)}
                   </span>
                   {job.status === 'complete' && (
-                    <span className="dashboard__instrument-count">
-                      🎵 {job.instrument_count} instrument{job.instrument_count !== 1 ? 's' : ''}
+                    <span className="dashboard__instrument-count" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      <Music2 size={14} /> {job.instrument_count} instrument{job.instrument_count !== 1 ? 's' : ''}
                     </span>
                   )}
                 </div>
-
-                {job.message && (
-                  <p className="dashboard__job-message text-secondary text-sm">
-                    {job.message}
-                  </p>
-                )}
               </Card>
             );
           })}
