@@ -1,6 +1,6 @@
-# 🎵 Musheet — Music Sheet Generation
+# MuSheet — Music Sheet Generation
 
-> **Transform any song into per-instrument sheet music.** Upload an audio file, and Musheet separates it into individual instrument stems, transcribes each to musical notation, and generates downloadable scores.
+> **Transform any song into per-instrument sheet music.** Upload an audio file, and MuSheet separates it into individual instrument stems, transcribes each to musical notation, and generates downloadable scores.
 
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-green.svg)](https://fastapi.tiangolo.com/)
@@ -9,7 +9,7 @@
 
 ---
 
-## ✨ Features
+## Features
 
 - **Audio Source Separation** — Splits songs into stems: vocals, drums, bass, guitar, piano, and more
 - **Instrument Detection** — Identifies instruments present in each stem
@@ -21,7 +21,7 @@
 - **Stem Playback** — Listen to individual instrument stems
 - **Real-Time Progress** — SSE-powered live pipeline progress
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -41,7 +41,7 @@
 └─────────────────────────────────────────────────────────┘
 ```
 
-## 📦 Project Structure
+## Project Structure
 
 ```
 ├── backend/                 # FastAPI REST API
@@ -75,7 +75,7 @@
 └── scripts/                 # Setup & demo scripts
 ```
 
-## 🚀 Quick Start (macOS Apple Silicon)
+## Quick Start (macOS Apple Silicon)
 
 ### Prerequisites
 
@@ -121,10 +121,10 @@ npm run dev
 ```
 
 **Open:**
-- 🎨 Frontend: [http://localhost:5173](http://localhost:5173)
-- 📚 API Docs: [http://localhost:8000/docs](http://localhost:8000/docs)
+- Frontend: [http://localhost:5173](http://localhost:5173)
+- API Docs: [http://localhost:8000/docs](http://localhost:8000/docs)
 
-## 🔌 API Endpoints
+## API Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -137,7 +137,7 @@ npm run dev
 | `GET` | `/api/files/scores/{id}/download` | Download score file |
 | `GET` | `/api/health` | Health check |
 
-## 🎯 ML Pipeline Stages
+## ML Pipeline Stages
 
 1. **Pre-processing** — Normalize audio, resample to 44.1kHz
 2. **Source Separation** — Split into stems via Demucs v4 (`htdemucs`)

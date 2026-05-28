@@ -14,7 +14,7 @@ export const Header: React.FC = () => {
         <span className="header__brand-icon" style={{ display: 'flex', alignItems: 'center' }}>
           <Music2 size={24} />
         </span>
-        <span>Musheet</span>
+        <span>MuSheet</span>
       </NavLink>
 
       <nav className="header__nav">
