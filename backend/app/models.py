@@ -138,3 +138,34 @@ class Score(Base):
 
     def __repr__(self) -> str:
         return f"<Score(id={self.id!r}, format={self.format!r}, ensemble={self.is_ensemble})>"
+
+
+class PracticeSession(Base):
+    """Represents a saved practice session for an instrument stem."""
+
+    __tablename__ = "practice_sessions"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=_generate_uuid
+    )
+    job_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    stem_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("stems.id", ondelete="SET NULL"), nullable=True
+    )
+    accuracy: Mapped[float] = mapped_column(Float, nullable=False)
+    total_notes: Mapped[int] = mapped_column(Integer, nullable=False)
+    correct_notes: Mapped[int] = mapped_column(Integer, nullable=False)
+    elapsed_seconds: Mapped[float] = mapped_column(Float, nullable=False)
+    tempo_percent: Mapped[float] = mapped_column(Float, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+    # Relationships
+    job: Mapped["Job"] = relationship("Job")
+    stem: Mapped[Optional["Stem"]] = relationship("Stem")
+
+    def __repr__(self) -> str:
+        return f"<PracticeSession(id={self.id!r}, accuracy={self.accuracy!r})>"

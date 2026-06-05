@@ -266,11 +266,23 @@ export const TranscriptionDetailPage: React.FC = () => {
 
           {/* Score Viewer */}
           <div className="score-section">
-            <h3 style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              {selectedStem
-                ? <>{getInstrumentIcon(selectedStem.instrument_family, { size: 24 })} {selectedStem.instrument_name} — Sheet Music</>
-                : <><Layers size={24} /> Ensemble Score</>}
-            </h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                {selectedStem
+                  ? <>{getInstrumentIcon(selectedStem.instrument_family, { size: 24 })} {selectedStem.instrument_name} — Sheet Music</>
+                  : <><Layers size={24} /> Ensemble Score</>}
+              </h3>
+              {musicxmlScore && selectedStem && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => navigate(`/practice/${job.id}?stemId=${selectedStem.id}`)}
+                  style={{ background: 'var(--gradient-secondary)', border: 'none' }}
+                >
+                  Practice This Part
+                </Button>
+              )}
+            </div>
             <div className="score-viewer-container">
               {musicxmlScore ? (
                 <ScoreViewer 

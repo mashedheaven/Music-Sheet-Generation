@@ -5,6 +5,7 @@ import { Music2 } from 'lucide-react';
 const navItems = [
   { to: '/', label: 'Dashboard' },
   { to: '/upload', label: 'Upload' },
+  { to: '/practice', label: 'Practice' },
 ];
 
 export const Header: React.FC = () => {

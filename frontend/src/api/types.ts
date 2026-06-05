@@ -69,3 +69,69 @@ export interface JobProgressEvent {
   message: string;
   stage: string;
 }
+
+// ── Practice Mode ────────────────────────────────────────────────────────────
+export type PracticeInputMethod = 'microphone' | 'midi';
+export type PracticeState = 'idle' | 'countdown' | 'playing' | 'paused' | 'complete';
+export type NoteStatus = 'pending' | 'correct' | 'wrong' | 'current' | 'skipped';
+
+export interface PracticeConfig {
+  musicxmlUrl?: string;
+  musicxmlContent?: string;
+  instrumentPartIndex: number;
+  inputMethod: PracticeInputMethod;
+  midiDeviceId?: string;
+  tempoPercent: number;
+  metronomeEnabled: boolean;
+  startMeasure: number;
+  // Accompaniment
+  jobId?: string;
+  selectedStemId?: string;
+  stems?: Stem[];
+}
+
+export interface PracticeStats {
+  totalNotes: number;
+  correctFirstTry: number;
+  retriedNotes: number;
+  accuracy: number;
+  elapsedSeconds: number;
+  expectedSeconds: number;
+}
+
+export interface PitchResult {
+  frequency: number;
+  midiNote: number;
+  noteName: string;
+  octave: number;
+  cents: number;
+  confidence: number;
+}
+
+export interface MidiNoteEvent {
+  note: number;
+  velocity: number;
+  type: 'on' | 'off';
+  timestamp: number;
+}
+
+export interface NoteInfo {
+  midiPitch: number;
+  noteName: string;
+  octave: number;
+  duration: number;
+  measureNumber: number;
+  isRest: boolean;
+}
+
+export interface PracticeSessionRecord {
+  id: string;
+  job_id: string;
+  stem_id: string | null;
+  accuracy: number;
+  total_notes: number;
+  correct_notes: number;
+  elapsed_seconds: number;
+  tempo_percent: number;
+  created_at: string;
+}
