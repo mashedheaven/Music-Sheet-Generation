@@ -158,3 +158,31 @@ class JobProgressEvent(BaseModel):
     progress: float
     message: str | None = None
     stage: str | None = None
+
+
+class PracticeSessionCreate(BaseModel):
+    """Schema for creating/recording a practice session."""
+
+    job_id: str
+    stem_id: str | None = None
+    accuracy: float
+    total_notes: int
+    correct_notes: int
+    elapsed_seconds: float
+    tempo_percent: float
+
+
+class PracticeSessionResponse(BaseModel):
+    """Response schema for a saved practice session."""
+
+    id: str
+    job_id: str
+    stem_id: str | None = None
+    accuracy: float
+    total_notes: int
+    correct_notes: int
+    elapsed_seconds: float
+    tempo_percent: float
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

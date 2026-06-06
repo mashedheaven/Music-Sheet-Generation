@@ -65,4 +65,37 @@ export function getOriginalAudioUrl(jobId: string): string {
   return `${api.defaults.baseURL}/api/files/jobs/${jobId}/original`;
 }
 
+/** Record a completed practice session */
+export async function recordPracticeSession(
+  jobId: string,
+  stemId: string | null,
+  accuracy: number,
+  totalNotes: number,
+  correctNotes: number,
+  elapsedSeconds: number,
+  tempoPercent: number,
+): Promise<any> {
+  const { data } = await api.post('/api/practice', {
+    job_id: jobId,
+    stem_id: stemId,
+    accuracy,
+    total_notes: totalNotes,
+    correct_notes: correctNotes,
+    elapsed_seconds: elapsedSeconds,
+    tempo_percent: tempoPercent,
+  });
+  return data;
+}
+
+/** Get the last practice session for a job and stem */
+export async function getLastPracticeSession(
+  jobId: string,
+  stemId?: string,
+): Promise<any> {
+  const { data } = await api.get('/api/practice/last', {
+    params: { job_id: jobId, stem_id: stemId },
+  });
+  return data;
+}
+
 export default api;

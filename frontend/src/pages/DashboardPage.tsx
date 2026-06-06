@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Music, Plus, Music2 } from 'lucide-react';
+import { AlertTriangle, Music, Plus, Music2, GraduationCap } from 'lucide-react';
 import { listJobs } from '../api/client';
 import type { JobSummary } from '../api/types';
 import { Card } from '../components/common/Card';
@@ -84,6 +84,33 @@ export const DashboardPage: React.FC = () => {
         >
           Create New Transcription
         </Button>
+      </section>
+
+      {/* ── Feature Cards ────────────────────────────────────────────────── */}
+      <section className="dashboard__features" style={{ marginBottom: '2.5rem' }}>
+        <div
+          className="card dashboard__feature-card glass-card"
+          style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: '1.5rem 2rem', gap: '2rem', flexWrap: 'wrap', border: '1px solid rgba(139, 92, 246, 0.2)' }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flex: 1, minWidth: '280px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--gradient-secondary)', padding: '0.85rem', borderRadius: '12px', boxShadow: '0 4px 15px rgba(139, 92, 246, 0.2)' }}>
+              <GraduationCap size={28} style={{ color: '#ffffff' }} />
+            </div>
+            <div>
+              <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800 }}>Practice Room</h2>
+              <p style={{ margin: '0.25rem 0 0', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                Learn and practice sheet music dynamically with real-time audio analysis of your performance.
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="primary"
+            onClick={() => navigate('/practice')}
+            style={{ background: 'var(--gradient-secondary)', border: 'none', minWidth: '150px' }}
+          >
+            Start Practicing
+          </Button>
+        </div>
       </section>
 
       {/* ── Job List ─────────────────────────────────────────────────────── */}

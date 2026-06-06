@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import init_db
-from app.routers import files, jobs, progress
+from app.routers import files, jobs, progress, practice
 from app.services.file_service import ensure_directories
 
 # ── Logging setup ────────────────────────────────────────────────────────────
@@ -62,6 +62,7 @@ app.add_middleware(
 app.include_router(jobs.router, prefix="/api")
 app.include_router(files.router, prefix="/api")
 app.include_router(progress.router, prefix="/api")
+app.include_router(practice.router, prefix="/api")
 
 
 # ── Root & health endpoints ──────────────────────────────────────────────────
