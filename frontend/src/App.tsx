@@ -6,6 +6,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { UploadPage } from './pages/UploadPage';
 import { TranscriptionDetailPage } from './pages/TranscriptionDetailPage';
 import { PracticePage } from './pages/PracticePage';
+import { KaraokePage } from './pages/KaraokePage';
 import './index.css';
 
 export const App: React.FC = () => {
@@ -18,6 +19,8 @@ export const App: React.FC = () => {
           <Route path="/jobs/:jobId" element={<TranscriptionDetailPage />} />
           <Route path="/practice" element={<PracticePage />} />
           <Route path="/practice/:jobId" element={<PracticePage />} />
+          <Route path="/karaoke" element={<KaraokePage />} />
+          <Route path="/karaoke/:jobId" element={<KaraokePage />} />
         </Routes>
       </Layout>
       <Toaster 

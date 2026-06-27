@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Music, Plus, Music2, GraduationCap } from 'lucide-react';
+import { AlertTriangle, Music, Plus, Music2, GraduationCap, Mic } from 'lucide-react';
 import { listJobs } from '../api/client';
 import type { JobSummary } from '../api/types';
 import { Card } from '../components/common/Card';
@@ -87,28 +87,54 @@ export const DashboardPage: React.FC = () => {
       </section>
 
       {/* ── Feature Cards ────────────────────────────────────────────────── */}
-      <section className="dashboard__features" style={{ marginBottom: '2.5rem' }}>
+      <section className="dashboard__features" style={{ marginBottom: '2.5rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '1.5rem' }}>
+        {/* Practice Room */}
         <div
           className="card dashboard__feature-card glass-card"
-          style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: '1.5rem 2rem', gap: '2rem', flexWrap: 'wrap', border: '1px solid rgba(139, 92, 246, 0.2)' }}
+          style={{ display: 'flex', flexDirection: 'column', padding: '1.5rem 2rem', gap: '1.5rem', border: '1px solid rgba(139, 92, 246, 0.2)' }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flex: 1, minWidth: '280px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--gradient-secondary)', padding: '0.85rem', borderRadius: '12px', boxShadow: '0 4px 15px rgba(139, 92, 246, 0.2)' }}>
               <GraduationCap size={28} style={{ color: '#ffffff' }} />
             </div>
             <div>
               <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800 }}>Practice Room</h2>
               <p style={{ margin: '0.25rem 0 0', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                Learn and practice sheet music dynamically with real-time audio analysis of your performance.
+                Learn and practice sheet music dynamically with real-time audio analysis.
               </p>
             </div>
           </div>
           <Button
             variant="primary"
             onClick={() => navigate('/practice')}
-            style={{ background: 'var(--gradient-secondary)', border: 'none', minWidth: '150px' }}
+            style={{ background: 'var(--gradient-secondary)', border: 'none', width: '100%' }}
           >
             Start Practicing
+          </Button>
+        </div>
+
+        {/* Karaoke */}
+        <div
+          className="card dashboard__feature-card glass-card"
+          style={{ display: 'flex', flexDirection: 'column', padding: '1.5rem 2rem', gap: '1.5rem', border: '1px solid rgba(14, 165, 233, 0.2)' }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--gradient-primary)', padding: '0.85rem', borderRadius: '12px', boxShadow: '0 4px 15px rgba(14, 165, 233, 0.2)' }}>
+              <Mic size={28} style={{ color: '#ffffff' }} />
+            </div>
+            <div>
+              <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800 }}>Karaoke Mode</h2>
+              <p style={{ margin: '0.25rem 0 0', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                Sing along with real-time lyric synchronization powered by AI.
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="primary"
+            onClick={() => navigate('/karaoke')}
+            style={{ background: 'var(--gradient-primary)', border: 'none', width: '100%' }}
+          >
+            Start Karaoke
           </Button>
         </div>
       </section>
