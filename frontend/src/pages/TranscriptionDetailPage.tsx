@@ -9,6 +9,9 @@ import { ProgressBar } from '../components/common/ProgressBar';
 import { Spinner } from '../components/common/Spinner';
 import { ScoreViewer } from '../components/Score/ScoreViewer';
 import { AudioPlayer } from '../components/Audio/AudioPlayer';
+import { AppleLyricsView, type LyricNote } from '../components/Lyrics/AppleLyricsView';
+import { KaraokeCoach } from '../components/Karaoke/KaraokeCoach';
+import { ToneVisualizer } from '../components/Score/ToneVisualizer';
 import { formatRelativeTime, formatFileSize } from '../utils/formatters';
 import { getInstrumentIcon } from '../utils/icons';
 import {
@@ -23,7 +26,10 @@ import {
   ArrowLeft,
   Layers,
   FileText,
-  FileAudio
+  FileAudio,
+  Mic,
+  Activity,
+  Music
 } from 'lucide-react';
 
 // ── Pipeline stages for the stepper ──────────────────────────────────────────
@@ -53,11 +59,31 @@ export const TranscriptionDetailPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedStem, setSelectedStem] = useState<Stem | null>(null);
   const [audioTime, setAudioTime] = useState<number>(0);
+  const [activeTab, setActiveTab] = useState<'sheet' | 'lyrics' | 'karaoke' | 'visualizer'>('sheet');
+  const [stemNotesMap, setStemNotesMap] = useState<Record<string, LyricNote[]>>({});
 
   // When switching stems, reset audio time
   useEffect(() => {
     setAudioTime(0);
   }, [selectedStem]);
+
+  // Fetch job notes and lyrics
+  useEffect(() => {
+    if (!jobId) return;
+    fetch(`/api/jobs/${jobId}/notes`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.stems_notes) {
+          const map: Record<string, LyricNote[]> = {};
+          data.stems_notes.forEach((sn: any) => {
+            map[sn.stem_id] = sn.notes;
+          });
+          setStemNotesMap(map);
+        }
+      })
+      .catch((err) => console.error('Failed to fetch stem notes:', err));
+  }, [jobId]);
+
   const [deleting, setDeleting] = useState(false);
   const initialSelectDone = useRef(false);
 
@@ -264,30 +290,118 @@ export const TranscriptionDetailPage: React.FC = () => {
             />
           </div>
 
-          {/* Score Viewer */}
+          {/* Navigation Tabs for Views */}
+          <div style={{ display: 'flex', gap: '0.75rem', margin: '1.5rem 0', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.75rem' }}>
+            <button
+              onClick={() => setActiveTab('sheet')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.6rem 1.2rem',
+                borderRadius: '8px',
+                border: 'none',
+                background: activeTab === 'sheet' ? '#3b82f6' : 'rgba(255,255,255,0.08)',
+                color: '#fff',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              <FileMusic size={18} /> Sheet Music
+            </button>
+            <button
+              onClick={() => setActiveTab('lyrics')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.6rem 1.2rem',
+                borderRadius: '8px',
+                border: 'none',
+                background: activeTab === 'lyrics' ? '#38bdf8' : 'rgba(255,255,255,0.08)',
+                color: '#fff',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              <Music size={18} /> Apple Style Lyrics
+            </button>
+            <button
+              onClick={() => setActiveTab('karaoke')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.6rem 1.2rem',
+                borderRadius: '8px',
+                border: 'none',
+                background: activeTab === 'karaoke' ? '#a855f7' : 'rgba(255,255,255,0.08)',
+                color: '#fff',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              <Mic size={18} /> AI Karaoke Coach
+            </button>
+            <button
+              onClick={() => setActiveTab('visualizer')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.6rem 1.2rem',
+                borderRadius: '8px',
+                border: 'none',
+                background: activeTab === 'visualizer' ? '#06b6d4' : 'rgba(255,255,255,0.08)',
+                color: '#fff',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              <Activity size={18} /> Tone & Note Visualizer
+            </button>
+          </div>
+
+          {/* Active View Content */}
           <div className="score-section">
-            <h3 style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              {selectedStem
-                ? <>{getInstrumentIcon(selectedStem.instrument_family, { size: 24 })} {selectedStem.instrument_name} — Sheet Music</>
-                : <><Layers size={24} /> Ensemble Score</>}
-            </h3>
-            <div className="score-viewer-container">
-              {musicxmlScore ? (
-                <ScoreViewer 
-                  musicxmlUrl={getScoreDownloadUrl(musicxmlScore.id)}
-                  allowTranspose={selectedStem ? selectedStem.instrument_family !== 'percussion' : false}
-                  currentTime={audioTime}
-                />
-              ) : (
-                <div className="score-viewer-placeholder">
-                  <Layers size={48} className="score-viewer-placeholder__icon" style={{ opacity: 0.5, margin: '0 auto 1rem', display: 'block' }} />
-                  <p>Score Not Available</p>
-                  <p className="text-sm text-secondary mt-2" style={{ maxWidth: '400px', margin: '0.5rem auto 0' }}>
-                    There is no MusicXML score available for this selection.
-                  </p>
-                </div>
-              )}
-            </div>
+            {activeTab === 'sheet' && (
+              <div className="score-viewer-container">
+                {musicxmlScore ? (
+                  <ScoreViewer
+                    musicxmlUrl={getScoreDownloadUrl(musicxmlScore.id)}
+                    allowTranspose={selectedStem ? selectedStem.instrument_family !== 'percussion' : false}
+                    currentTime={audioTime}
+                  />
+                ) : (
+                  <div className="score-viewer-placeholder">
+                    <Layers size={48} className="score-viewer-placeholder__icon" style={{ opacity: 0.5, margin: '0 auto 1rem', display: 'block' }} />
+                    <p>Score Not Available</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'lyrics' && (
+              <AppleLyricsView
+                notes={selectedStem ? stemNotesMap[selectedStem.id] || [] : Object.values(stemNotesMap).flat()}
+                currentTime={audioTime}
+                onSeek={(time) => setAudioTime(time)}
+              />
+            )}
+
+            {activeTab === 'karaoke' && (
+              <KaraokeCoach
+                vocalNotes={selectedStem ? stemNotesMap[selectedStem.id] || [] : Object.values(stemNotesMap).flat()}
+                currentTime={audioTime}
+              />
+            )}
+
+            {activeTab === 'visualizer' && (
+              <ToneVisualizer
+                notes={selectedStem ? stemNotesMap[selectedStem.id] || [] : Object.values(stemNotesMap).flat()}
+                currentTime={audioTime}
+              />
+            )}
           </div>
 
           {/* Downloads */}

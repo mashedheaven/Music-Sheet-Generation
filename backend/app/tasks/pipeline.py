@@ -304,6 +304,7 @@ def run_pipeline(job_id: str, audio_path: str) -> None:
             db.close()
 
         try:
+            import torch  # noqa: F401
             import ml_pipeline.orchestrator  # noqa: F401
             logger.info("Using real ML pipeline for job %s", job_id)
             pipeline_func = _run_real_pipeline
@@ -314,7 +315,7 @@ def run_pipeline(job_id: str, audio_path: str) -> None:
             }
         except ImportError:
             logger.warning(
-                "ml_pipeline not installed — using stub pipeline for job %s", job_id
+                "Torch or ml_pipeline not fully installed — using stub pipeline for job %s", job_id
             )
             pipeline_func = _run_stub_pipeline
             pipeline_args = (job_id, audio_path)

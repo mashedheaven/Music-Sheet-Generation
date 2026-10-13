@@ -77,7 +77,8 @@ class SimpleQuantizer(NoteQuantizer):
         Returns:
             Grid interval in seconds.
         """
-        beat_duration = 60.0 / tempo_info.bpm
+        bpm = tempo_info.bpm if (tempo_info and tempo_info.bpm > 0) else 120.0
+        beat_duration = 60.0 / bpm
         # A whole note = beat_duration * denominator
         # (e.g. in 4/4 time, a whole note = 4 beats)
         whole_note_duration = beat_duration * tempo_info.time_signature_denominator
@@ -122,8 +123,12 @@ def detect_tempo(audio_path: Path) -> TempoInfo:
     
     # Simple heuristic for time signature: default to 4/4
     # In a full production system, we'd use something more sophisticated like madmom
+    detected_bpm = float(tempo[0] if isinstance(tempo, np.ndarray) else tempo)
+    if detected_bpm <= 0:
+        detected_bpm = 120.0
+
     return TempoInfo(
-        bpm=float(tempo[0] if isinstance(tempo, np.ndarray) else tempo),
+        bpm=detected_bpm,
         time_signature_numerator=4,
         time_signature_denominator=4,
         beat_positions=beat_times.tolist(),
