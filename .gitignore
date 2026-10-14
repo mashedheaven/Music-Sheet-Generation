@@ -33,9 +33,14 @@ backend/storage/stems/*
 backend/storage/scores/*
 backend/storage/exports/*
 !backend/storage/**/.gitkeep
+storage/
+backend/output/
+demo_output/
 
 # Database
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
 
