@@ -24,7 +24,7 @@ router = APIRouter(prefix="/jobs", tags=["Jobs"])
     status_code=status.HTTP_201_CREATED,
     summary="Upload audio and create a transcription job",
 )
-async def create_job(
+def create_job(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="Audio file to transcribe"),
     title: str | None = Form(default=None, description="Song title (optional)"),
@@ -55,7 +55,7 @@ async def create_job(
         )
 
     # Create the job (saves file and DB record)
-    job = await job_service.create_job(
+    job = job_service.create_job(
         db, file, title, transcribe_vocals=transcribe_vocals, indian_percussion_mode=indian_percussion_mode
     )
 

@@ -23,7 +23,7 @@ def ensure_directories() -> None:
         logger.debug("Ensured directory exists: %s", directory)
 
 
-async def save_upload(file: UploadFile, job_id: str) -> str:
+def save_upload(file: UploadFile, job_id: str) -> str:
     """
     Save an uploaded file to the uploads directory.
 
@@ -45,8 +45,7 @@ async def save_upload(file: UploadFile, job_id: str) -> str:
     # Stream the file to disk to handle large files efficiently
     try:
         with dest_path.open("wb") as buffer:
-            while chunk := await file.read(1024 * 64):  # 64KB chunks
-                buffer.write(chunk)
+            shutil.copyfileobj(file.file, buffer)
     except Exception:
         # Clean up partial file on failure
         if dest_path.exists():
