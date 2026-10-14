@@ -70,14 +70,7 @@ class BasicPreprocessor(AudioPreprocessor):
         if suffix == ".wav":
             return self._process_wav(audio_path)
 
-        # For non-WAV formats, return stub metadata.
-        # TODO: Use librosa.load() and librosa.get_duration() here.
-        return ProcessedAudio(
-            file_path=audio_path,
-            sample_rate=self.config.sample_rate,
-            duration=self._estimate_duration(audio_path, suffix),
-            num_channels=2,
-        )
+        return self._process_non_wav(audio_path)
 
     def _process_wav(self, audio_path: Path) -> ProcessedAudio:
         """Extract real metadata from a WAV file header.
@@ -109,6 +102,39 @@ class BasicPreprocessor(AudioPreprocessor):
             duration=duration,
             num_channels=num_channels,
         )
+
+    def _process_non_wav(self, audio_path: Path) -> ProcessedAudio:
+        """Extract metadata for non-WAV formats using librosa.
+
+        Args:
+            audio_path: Path to the audio file.
+
+        Returns:
+            ProcessedAudio with metadata extracted via librosa.
+        """
+        try:
+            import librosa
+
+            # Load audio keeping native sample rate and channels (mono=False)
+            y, sr = librosa.load(str(audio_path), sr=None, mono=False)
+            duration = float(librosa.get_duration(y=y, sr=sr))
+            num_channels = 1 if y.ndim == 1 else y.shape[0]
+
+            return ProcessedAudio(
+                file_path=audio_path,
+                sample_rate=int(sr),
+                duration=duration,
+                num_channels=num_channels,
+            )
+        except Exception:
+            # Fallback to estimated duration and defaults if librosa loading fails
+            suffix = audio_path.suffix.lower()
+            return ProcessedAudio(
+                file_path=audio_path,
+                sample_rate=self.config.sample_rate,
+                duration=self._estimate_duration(audio_path, suffix),
+                num_channels=2,
+            )
 
     @staticmethod
     def _estimate_duration(audio_path: Path, suffix: str) -> float:
