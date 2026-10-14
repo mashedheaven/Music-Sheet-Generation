@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models import Job
-from app.services.file_service import delete_job_files, save_upload
+from app.services.file_service import delete_job_files, get_absolute_path, save_upload
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ async def create_job(
 
     # Save the uploaded file
     relative_path = await save_upload(file, job.id)
-    absolute_path = (Path(settings.STORAGE_BASE_PATH) / relative_path).resolve()
+    absolute_path = get_absolute_path(relative_path)
 
     # Update job with file info
     job.audio_path = relative_path

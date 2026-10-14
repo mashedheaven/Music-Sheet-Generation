@@ -68,8 +68,19 @@ def get_absolute_path(relative_path: str) -> Path:
 
     Returns:
         Absolute Path object.
+
+    Raises:
+        ValueError: If the resolved path traverses outside the storage base path.
     """
-    return (Path(settings.STORAGE_BASE_PATH) / relative_path).resolve()
+    base_dir = Path(settings.STORAGE_BASE_PATH).resolve()
+    resolved_path = (base_dir / relative_path).resolve()
+
+    if not resolved_path.is_relative_to(base_dir):
+        raise ValueError(
+            f"Path traversal attempt detected: '{relative_path}' is outside storage base path."
+        )
+
+    return resolved_path
 
 
 def delete_job_files(job_id: str) -> None:
