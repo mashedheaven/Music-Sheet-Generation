@@ -14,6 +14,7 @@ from pathlib import Path
 from app.config import settings
 from app.database import SessionLocal
 from app.models import Job, Score, Stem
+from app.services.file_service import get_absolute_path
 
 logger = logging.getLogger(__name__)
 
@@ -174,7 +175,7 @@ def _run_real_pipeline(job_id: str, audio_path: str, transcribe_vocals: bool = T
     from ml_pipeline.config import PipelineConfig
     from ml_pipeline.data_models import PipelineProgress
 
-    absolute_audio = (Path(settings.STORAGE_BASE_PATH) / audio_path).resolve()
+    absolute_audio = get_absolute_path(audio_path)
 
     def progress_callback(progress: PipelineProgress) -> None:
         _update_progress(job_id, progress.stage.value, progress.progress, progress.message)
