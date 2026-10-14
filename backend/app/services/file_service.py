@@ -2,6 +2,7 @@
 
 import logging
 import shutil
+import uuid
 from pathlib import Path
 
 from fastapi import UploadFile
@@ -79,13 +80,25 @@ def delete_job_files(job_id: str) -> None:
     Args:
         job_id: UUID of the job whose files should be deleted.
     """
+    try:
+        uuid.UUID(job_id)
+    except (ValueError, TypeError, AttributeError):
+        logger.warning("Invalid job_id provided for file deletion: %r", job_id)
+        raise ValueError(f"Invalid job_id: {job_id!r}")
+
     for base_dir in (
         settings.UPLOAD_DIR,
         settings.STEMS_DIR,
         settings.SCORES_DIR,
         settings.EXPORTS_DIR,
     ):
-        job_dir = base_dir / job_id
+        resolved_base = base_dir.resolve()
+        job_dir = (base_dir / job_id).resolve()
+
+        if not job_dir.is_relative_to(resolved_base) or job_dir == resolved_base:
+            logger.warning("Attempted path traversal in delete_job_files: %s", job_id)
+            raise ValueError(f"Invalid job_id path: {job_id!r}")
+
         if job_dir.exists():
             shutil.rmtree(job_dir, ignore_errors=True)
             logger.info("Deleted files at: %s", job_dir)
