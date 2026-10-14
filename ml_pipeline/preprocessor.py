@@ -9,6 +9,8 @@ import struct
 import wave
 from pathlib import Path
 
+import librosa
+
 from ml_pipeline.config import PipelineConfig
 from ml_pipeline.data_models import ProcessedAudio
 from ml_pipeline.interfaces import AudioPreprocessor
@@ -70,13 +72,37 @@ class BasicPreprocessor(AudioPreprocessor):
         if suffix == ".wav":
             return self._process_wav(audio_path)
 
-        # For non-WAV formats, return stub metadata.
-        # TODO: Use librosa.load() and librosa.get_duration() here.
+        return self._process_non_wav(audio_path, suffix)
+
+    def _process_non_wav(self, audio_path: Path, suffix: str) -> ProcessedAudio:
+        """Extract metadata from non-WAV audio files using librosa.
+
+        Args:
+            audio_path: Path to non-WAV audio file.
+            suffix: File extension (e.g. ".mp3").
+
+        Returns:
+            ProcessedAudio with metadata extracted by librosa.
+        """
+        try:
+            y, sample_rate = librosa.load(str(audio_path), sr=None, mono=False)
+            sample_rate = int(sample_rate)
+            duration = float(librosa.get_duration(y=y, sr=sample_rate))
+            num_channels = int(y.shape[0]) if y.ndim > 1 else 1
+        except Exception:
+            # Fallback for unsupported or malformed files that librosa cannot decode
+            return ProcessedAudio(
+                file_path=audio_path,
+                sample_rate=self.config.sample_rate,
+                duration=self._estimate_duration(audio_path, suffix),
+                num_channels=2,
+            )
+
         return ProcessedAudio(
             file_path=audio_path,
-            sample_rate=self.config.sample_rate,
-            duration=self._estimate_duration(audio_path, suffix),
-            num_channels=2,
+            sample_rate=sample_rate,
+            duration=duration,
+            num_channels=num_channels,
         )
 
     def _process_wav(self, audio_path: Path) -> ProcessedAudio:
