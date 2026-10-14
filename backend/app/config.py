@@ -1,5 +1,6 @@
-from __future__ import annotations
 """Application configuration using Pydantic Settings."""
+
+from __future__ import annotations
 
 from pathlib import Path
 
@@ -22,6 +23,14 @@ class Settings(BaseSettings):
 
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    CORS_ALLOW_METHODS: list[str] = ["GET", "POST", "DELETE", "OPTIONS"]
+    CORS_ALLOW_HEADERS: list[str] = [
+        "Content-Type",
+        "Authorization",
+        "Accept",
+        "Origin",
+        "X-Requested-With",
+    ]
 
     # Derived storage directories
     @property
