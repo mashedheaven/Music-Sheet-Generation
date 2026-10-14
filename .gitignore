@@ -28,6 +28,11 @@ frontend/.vite/
 .DS_Store
 
 # Storage (local dev data)
+storage/uploads/*
+storage/stems/*
+storage/scores/*
+storage/exports/*
+!storage/**/.gitkeep
 backend/storage/uploads/*
 backend/storage/stems/*
 backend/storage/scores/*
@@ -36,6 +41,8 @@ backend/storage/exports/*
 
 # Database
 *.db
+*.db-wal
+*.db-shm
 *.sqlite
 *.sqlite3
 
