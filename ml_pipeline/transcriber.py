@@ -5,6 +5,7 @@ audio stems into discrete note events.
 """
 from __future__ import annotations
 
+import bisect
 from pathlib import Path
 from typing import List
 
@@ -380,11 +381,14 @@ class BasicPitchTranscriber(AudioTranscriber):
             for word_info in segment.get("words", []):
                 words.append(word_info)
 
-        if not words:
+        if not words or not notes:
             return notes
 
-        # Simple alignment: assign each word to the first note that falls within its timestamp,
-        # or the closest note.
+        # Binary search alignment: ensure notes are sorted by onset,
+        # then find candidate notes in [word_start - 0.5, word_start + 0.5].
+        notes.sort(key=lambda n: n.onset)
+        onsets = [n.onset for n in notes]
+
         for word_info in words:
             word_text = word_info["word"].strip()
             word_start = word_info["start"]
@@ -393,27 +397,27 @@ class BasicPitchTranscriber(AudioTranscriber):
             if not word_text:
                 continue
 
-            # Find the best note for this word
-            # We look for a note whose onset is close to the word start
+            left_idx = bisect.bisect_left(onsets, word_start - 0.5)
+            right_idx = bisect.bisect_right(onsets, word_start + 0.5)
+
             best_note = None
             min_dist = float('inf')
-            
-            for note in notes:
+
+            for i in range(left_idx, right_idx):
+                note = notes[i]
                 # If note already has a lyric, skip it
                 if note.lyric:
                     continue
-                    
-                # Calculate distance between word start and note onset
+
                 dist = abs(note.onset - word_start)
-                
-                # If the note starts roughly around the same time as the word
+
                 if dist < 0.5 and dist < min_dist:
                     min_dist = dist
                     best_note = note
-                    
+
             if best_note:
                 best_note.lyric = word_text
-                
+
         return notes
 
     def _transcribe_percussion(self, audio_path: Path, instrument: InstrumentInfo) -> TranscriptionResult:
