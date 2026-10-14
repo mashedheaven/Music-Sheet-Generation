@@ -5,6 +5,7 @@ and optionally PDF score files using the music21 library.
 """
 from __future__ import annotations
 
+from collections import defaultdict
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -235,12 +236,9 @@ class Music21ScoreGenerator(ScoreGenerator):
             return
 
         # Group notes by onset time for chord detection
-        onset_groups: Dict[float, List[PipelineNote]] = {}
+        onset_groups: Dict[float, List[PipelineNote]] = defaultdict(list)
         for n in notes:
-            onset_key = round(n.onset, 6)
-            if onset_key not in onset_groups:
-                onset_groups[onset_key] = []
-            onset_groups[onset_key].append(n)
+            onset_groups[round(n.onset, 6)].append(n)
 
         for onset in sorted(onset_groups.keys()):
             group = onset_groups[onset]
@@ -284,12 +282,9 @@ class Music21ScoreGenerator(ScoreGenerator):
             return
 
         # Group notes by onset time for chord detection
-        onset_groups: Dict[float, List[PipelineNote]] = {}
+        onset_groups: Dict[float, List[PipelineNote]] = defaultdict(list)
         for n in notes:
-            onset_key = round(n.onset, 6)
-            if onset_key not in onset_groups:
-                onset_groups[onset_key] = []
-            onset_groups[onset_key].append(n)
+            onset_groups[round(n.onset, 6)].append(n)
 
         for onset in sorted(onset_groups.keys()):
             group = onset_groups[onset]
