@@ -68,8 +68,15 @@ def get_absolute_path(relative_path: str) -> Path:
 
     Returns:
         Absolute Path object.
+
+    Raises:
+        ValueError: If relative_path attempts path traversal outside STORAGE_BASE_PATH.
     """
-    return (Path(settings.STORAGE_BASE_PATH) / relative_path).resolve()
+    base_path = Path(settings.STORAGE_BASE_PATH).resolve()
+    resolved_path = (base_path / relative_path).resolve()
+    if not resolved_path.is_relative_to(base_path):
+        raise ValueError(f"Access denied: path '{relative_path}' is outside storage base directory.")
+    return resolved_path
 
 
 def delete_job_files(job_id: str) -> None:
