@@ -14,6 +14,7 @@ from pathlib import Path
 from app.config import settings
 from app.database import SessionLocal
 from app.models import Job, Score, Stem
+from app.services.job_bus import job_bus
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ def _update_progress(
             job.progress = max(0.0, min(1.0, progress))
             job.progress_message = message
             db.commit()
+            job_bus.notify(job_id)
             logger.info(
                 "Job %s: %s (%.0f%%) — %s", job_id, status, progress * 100, message
             )
@@ -54,6 +56,7 @@ def _fail_job(job_id: str, error_message: str) -> None:
             job.error_message = error_message
             job.progress_message = "Pipeline failed"
             db.commit()
+            job_bus.notify(job_id)
             logger.error("Job %s failed: %s", job_id, error_message)
     finally:
         db.close()
@@ -160,6 +163,7 @@ def _run_stub_pipeline(job_id: str, audio_path: str) -> None:
             job.progress_message = "Transcription complete"
 
         db.commit()
+        job_bus.notify(job_id)
         logger.info("Stub pipeline completed for job %s", job_id)
     except Exception:
         db.rollback()
@@ -270,6 +274,7 @@ def _run_real_pipeline(job_id: str, audio_path: str, transcribe_vocals: bool = T
                 job.duration_seconds = result.metadata.get("duration_seconds")
 
         db.commit()
+        job_bus.notify(job_id)
         logger.info("ML pipeline completed for job %s", job_id)
     except Exception:
         db.rollback()

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models import Job
 from app.services.file_service import delete_job_files, save_upload
+from app.services.job_bus import job_bus
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,7 @@ def delete_job(db: Session, job_id: str) -> bool:
     # Delete the database record (cascades to stems and scores)
     db.delete(job)
     db.commit()
+    job_bus.notify(job_id)
 
     logger.info("Deleted job %s", job_id)
     return True
@@ -149,5 +151,6 @@ def update_job_progress(
     job.progress_message = message
 
     db.commit()
+    job_bus.notify(job_id)
     db.refresh(job)
     return job
