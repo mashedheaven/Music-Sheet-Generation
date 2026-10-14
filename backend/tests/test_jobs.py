@@ -135,6 +135,25 @@ class TestDeleteJob:
         response = client.delete("/api/jobs/non-existent-uuid")
         assert response.status_code == 404
 
+    def test_delete_job_files_path_traversal(self):
+        """Should raise ValueError when path traversal is attempted in delete_job_files."""
+        from app.services.file_service import delete_job_files
+
+        for invalid_id in ["..", "../..", "..\\..", "foo/../../bar", "."]:
+            with pytest.raises(ValueError, match="path traversal detected"):
+                delete_job_files(invalid_id)
+
+    @pytest.mark.asyncio
+    async def test_save_upload_path_traversal(self):
+        """Should raise ValueError when path traversal is attempted in save_upload."""
+        from unittest.mock import MagicMock
+        from app.services.file_service import save_upload
+
+        fake_file = MagicMock()
+        for invalid_id in ["..", "../..", "..\\..", "foo/../../bar", "."]:
+            with pytest.raises(ValueError, match="path traversal detected"):
+                await save_upload(fake_file, invalid_id)
+
 
 class TestHealthCheck:
     """Tests for GET /api/health."""

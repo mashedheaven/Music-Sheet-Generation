@@ -34,8 +34,15 @@ async def save_upload(file: UploadFile, job_id: str) -> str:
     Returns:
         Relative path to the saved file (relative to STORAGE_BASE_PATH).
     """
+    if not job_id or "/" in job_id or "\\" in job_id or ".." in job_id:
+        raise ValueError(f"Invalid job_id: path traversal detected: {job_id}")
+
     # Create a job-specific upload directory
-    job_upload_dir = settings.UPLOAD_DIR / job_id
+    base_dir = settings.UPLOAD_DIR.resolve()
+    job_upload_dir = (settings.UPLOAD_DIR / job_id).resolve()
+    if not job_upload_dir.is_relative_to(base_dir) or job_upload_dir == base_dir:
+        raise ValueError(f"Invalid job_id: path traversal detected: {job_id}")
+
     job_upload_dir.mkdir(parents=True, exist_ok=True)
 
     # Sanitize the filename and preserve extension
@@ -54,7 +61,8 @@ async def save_upload(file: UploadFile, job_id: str) -> str:
         raise
 
     # Return path relative to storage base
-    relative_path = str(dest_path.relative_to(Path(settings.STORAGE_BASE_PATH)))
+    storage_base = Path(settings.STORAGE_BASE_PATH).resolve()
+    relative_path = str(dest_path.resolve().relative_to(storage_base))
     logger.info("Saved upload: %s (%d bytes)", relative_path, dest_path.stat().st_size)
     return relative_path
 
@@ -79,13 +87,20 @@ def delete_job_files(job_id: str) -> None:
     Args:
         job_id: UUID of the job whose files should be deleted.
     """
+    if not job_id or "/" in job_id or "\\" in job_id or ".." in job_id:
+        raise ValueError(f"Invalid job_id: path traversal detected: {job_id}")
+
     for base_dir in (
         settings.UPLOAD_DIR,
         settings.STEMS_DIR,
         settings.SCORES_DIR,
         settings.EXPORTS_DIR,
     ):
-        job_dir = base_dir / job_id
+        resolved_base = base_dir.resolve()
+        job_dir = (base_dir / job_id).resolve()
+        if not job_dir.is_relative_to(resolved_base) or job_dir == resolved_base:
+            raise ValueError(f"Invalid job_id: path traversal detected: {job_id}")
+
         if job_dir.exists():
             shutil.rmtree(job_dir, ignore_errors=True)
             logger.info("Deleted files at: %s", job_dir)
