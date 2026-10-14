@@ -159,3 +159,27 @@ class TestMusic21ScoreGenerator:
         assert config.output_dir is not None
         files = list(config.output_dir.glob("*.musicxml"))
         assert len(files) >= 3  # ensemble + piano + bass
+
+    def test_unquantized_offsets_and_durations(self, config, tempo):
+        """Should successfully generate score when notes have unquantized offsets."""
+        try:
+            from ml_pipeline.score_generator import Music21ScoreGenerator
+        except ImportError:
+            pytest.skip("music21 not installed")
+
+        info = InstrumentInfo(
+            name="Drum Kit", family=InstrumentFamily.DRUMS,
+            clef="percussion", is_percussion=True, confidence=1.0,
+        )
+        # Unquantized onsets like 1.999 seconds (approx beat 3.998 at 120bpm)
+        notes = [
+            Note(pitch=36, onset=0.0, offset=0.25, velocity=100),
+            Note(pitch=42, onset=1.999, offset=2.25, velocity=80),
+        ]
+        drum_part = InstrumentPart(instrument_info=info, notes=notes)
+
+        generator = Music21ScoreGenerator(config=config, tempo_info=tempo)
+        result = generator.generate([drum_part])
+
+        assert result.musicxml_path is not None
+        assert result.musicxml_path.exists()
