@@ -14,7 +14,7 @@ from app.services.file_service import delete_job_files, save_upload
 logger = logging.getLogger(__name__)
 
 
-async def create_job(
+def create_job(
     db: Session, 
     file: UploadFile, 
     title: str | None = None,
@@ -53,7 +53,7 @@ async def create_job(
     db.flush()  # Generate the ID without committing
 
     # Save the uploaded file
-    relative_path = await save_upload(file, job.id)
+    relative_path = save_upload(file, job.id)
     absolute_path = (Path(settings.STORAGE_BASE_PATH) / relative_path).resolve()
 
     # Update job with file info
