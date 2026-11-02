@@ -7,7 +7,6 @@ simulation when the ML package is not installed (MVP development mode).
 
 import logging
 import time
-import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
