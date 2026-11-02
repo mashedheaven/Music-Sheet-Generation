@@ -27,6 +27,17 @@ export function useJobProgress(
   const [stage, setStage] = useState('');
   const esRef = useRef<EventSource | null>(null);
   const retryRef = useRef(1000);
+  const connectRef = useRef<(() => void) | null>(null);
+
+  const scheduleReconnect = useCallback(() => {
+    const delay = retryRef.current;
+    retryRef.current = Math.min(delay * 2, 10_000);
+    setTimeout(() => {
+      if (enabled && connectRef.current) {
+        connectRef.current();
+      }
+    }, delay);
+  }, [enabled]);
 
   const connect = useCallback(() => {
     if (!jobId || !enabled) return;
@@ -59,22 +70,27 @@ export function useJobProgress(
       }
     };
 
-    es.addEventListener('progress', handleProgress);
-    es.addEventListener('complete', handleTerminal);
-    es.addEventListener('error', (event: any) => {
+    const handleError = (event: Event) => {
+      const messageEvent = event as MessageEvent;
       // If it's a stream error event with data
-      if (event.data) {
-         handleTerminal(event);
-         return;
+      if (messageEvent.data) {
+        handleTerminal(messageEvent);
+        return;
       }
-      
+
       es.close();
       // Reconnect with exponential back-off
-      const delay = retryRef.current;
-      retryRef.current = Math.min(delay * 2, 10_000);
-      setTimeout(connect, delay);
-    });
-  }, [jobId, enabled]);
+      scheduleReconnect();
+    };
+
+    es.addEventListener('progress', handleProgress);
+    es.addEventListener('complete', handleTerminal);
+    es.addEventListener('error', handleError);
+  }, [jobId, enabled, scheduleReconnect]);
+
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
 
   useEffect(() => {
     if (enabled) {
