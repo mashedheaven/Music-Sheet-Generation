@@ -1,25 +1,25 @@
 """Audio preprocessor implementation.
 
-Validates audio files and prepares metadata for downstream processing.
-Architected for easy integration with librosa for actual audio processing.
+Validates the upload, decodes any supported format (via soundfile or
+ffmpeg), and writes a normalized 44.1 kHz stereo WAV that every later
+stage can read reliably.
 """
 from __future__ import annotations
 
-import struct
-import wave
+import logging
 from pathlib import Path
+
+import numpy as np
 
 from ml_pipeline.config import PipelineConfig
 from ml_pipeline.data_models import ProcessedAudio
 from ml_pipeline.interfaces import AudioPreprocessor
 
+logger = logging.getLogger(__name__)
+
 
 class BasicPreprocessor(AudioPreprocessor):
-    """Preprocessor that validates files and extracts basic metadata.
-
-    Currently performs file validation and metadata extraction without
-    actual audio resampling or normalization. Designed so that librosa
-    can be plugged in later for full audio processing.
+    """Validates, decodes and normalizes the input audio.
 
     Attributes:
         config: Pipeline configuration with format and size constraints.
@@ -28,27 +28,8 @@ class BasicPreprocessor(AudioPreprocessor):
     def __init__(self, config: PipelineConfig | None = None) -> None:
         self.config = config or PipelineConfig()
 
-    def process(self, audio_path: Path) -> ProcessedAudio:
-        """Validate an audio file and return its metadata.
-
-        Checks that the file exists, has a supported format, and is within
-        the size limit. For WAV files, reads actual metadata from headers.
-        For other formats, returns reasonable defaults (to be replaced with
-        librosa-based metadata extraction later).
-
-        Args:
-            audio_path: Path to the audio file to preprocess.
-
-        Returns:
-            ProcessedAudio with file metadata.
-
-        Raises:
-            FileNotFoundError: If audio_path does not exist.
-            ValueError: If format is unsupported or file exceeds size limit.
-        """
-        audio_path = Path(audio_path)
-
-        # --- Validation ---
+    def validate(self, audio_path: Path) -> None:
+        """Raise if the file is missing, unsupported or too large."""
         if not audio_path.exists():
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
@@ -65,73 +46,58 @@ class BasicPreprocessor(AudioPreprocessor):
                 f"File size ({file_size / (1024*1024):.1f} MB) exceeds "
                 f"maximum ({self.config.max_file_size_mb} MB)"
             )
+        if file_size == 0:
+            raise ValueError("The uploaded file is empty.")
 
-        # --- Metadata extraction ---
-        if suffix == ".wav":
-            return self._process_wav(audio_path)
+    def process(self, audio_path: Path) -> ProcessedAudio:
+        """Validate and decode the audio, returning a normalized WAV.
 
-        # For non-WAV formats, return stub metadata.
-        # TODO: Use librosa.load() and librosa.get_duration() here.
-        return ProcessedAudio(
-            file_path=audio_path,
-            sample_rate=self.config.sample_rate,
-            duration=self._estimate_duration(audio_path, suffix),
-            num_channels=2,
-        )
-
-    def _process_wav(self, audio_path: Path) -> ProcessedAudio:
-        """Extract real metadata from a WAV file header.
-
-        Args:
-            audio_path: Path to a .wav file.
-
-        Returns:
-            ProcessedAudio with actual WAV metadata.
+        Raises:
+            FileNotFoundError: If audio_path does not exist.
+            ValueError: If the format is unsupported, the file is too large,
+                too long, or contains only silence.
         """
-        try:
-            with wave.open(str(audio_path), "rb") as wf:
-                sample_rate = wf.getframerate()
-                num_channels = wf.getnchannels()
-                num_frames = wf.getnframes()
-                duration = num_frames / sample_rate if sample_rate > 0 else 0.0
-        except wave.Error:
-            # Fallback for malformed WAV files
-            return ProcessedAudio(
-                file_path=audio_path,
-                sample_rate=self.config.sample_rate,
-                duration=0.0,
-                num_channels=2,
+        from ml_pipeline.audio_utils import load_audio, save_wav
+
+        audio_path = Path(audio_path)
+        self.validate(audio_path)
+
+        audio, sr = load_audio(audio_path)
+        if audio.shape[-1] == 0:
+            raise ValueError("The audio file contains no samples.")
+
+        duration = audio.shape[-1] / sr
+        if duration > self.config.max_duration_seconds:
+            raise ValueError(
+                f"Audio is {duration/60:.1f} minutes long; the maximum is "
+                f"{self.config.max_duration_seconds/60:.0f} minutes."
             )
 
+        peak = float(np.max(np.abs(audio)))
+        if peak < 1e-4:
+            raise ValueError("The audio file appears to be silent.")
+
+        # Normalize to stereo 44.1 kHz with -1 dBFS headroom.
+        if audio.shape[0] == 1:
+            audio = np.vstack([audio, audio])
+        elif audio.shape[0] > 2:
+            audio = audio[:2]
+        if sr != self.config.sample_rate:
+            import librosa
+
+            audio = librosa.resample(audio, orig_sr=sr, target_sr=self.config.sample_rate)
+            sr = self.config.sample_rate
+        audio = audio / peak * 0.89
+
+        self.config.ensure_directories()
+        assert self.config.stems_dir is not None
+        out_path = self.config.stems_dir / "_mix.wav"
+        save_wav(out_path, audio, sr)
+
+        logger.info("Preprocessed %s → %s (%.1fs)", audio_path.name, out_path.name, duration)
         return ProcessedAudio(
-            file_path=audio_path,
-            sample_rate=sample_rate,
+            file_path=out_path,
+            sample_rate=sr,
             duration=duration,
-            num_channels=num_channels,
+            num_channels=2,
         )
-
-    @staticmethod
-    def _estimate_duration(audio_path: Path, suffix: str) -> float:
-        """Estimate audio duration from file size and format.
-
-        This is a rough heuristic. Real implementations should use librosa.
-
-        Args:
-            audio_path: Path to the audio file.
-            suffix: File extension (e.g. ".mp3").
-
-        Returns:
-            Estimated duration in seconds.
-        """
-        file_size = audio_path.stat().st_size
-
-        # Rough bitrate estimates for common formats
-        bitrate_estimates: dict[str, int] = {
-            ".mp3": 192_000,   # 192 kbps
-            ".flac": 800_000,  # ~800 kbps
-            ".ogg": 160_000,   # 160 kbps
-            ".m4a": 256_000,   # 256 kbps
-        }
-
-        bitrate = bitrate_estimates.get(suffix, 256_000)
-        return (file_size * 8) / bitrate  # bits / bits_per_second = seconds

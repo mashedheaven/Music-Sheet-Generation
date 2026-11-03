@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Progress"])
 
-POLL_INTERVAL_SECONDS = 1.0
+POLL_INTERVAL_SECONDS = 0.75
 TERMINAL_STATUSES = {"complete", "failed"}
 
 
@@ -34,6 +34,7 @@ async def _progress_event_generator(
     """
     last_status: str | None = None
     last_progress: float | None = None
+    last_message: str | None = None
 
     while True:
         # Check for client disconnect
@@ -53,9 +54,14 @@ async def _progress_event_generator(
                 break
 
             # Only emit an event if something changed
-            if job.status != last_status or job.progress != last_progress:
+            if (
+                job.status != last_status
+                or job.progress != last_progress
+                or job.progress_message != last_message
+            ):
                 last_status = job.status
                 last_progress = job.progress
+                last_message = job.progress_message
 
                 event_data = JobProgressEvent(
                     job_id=job.id,

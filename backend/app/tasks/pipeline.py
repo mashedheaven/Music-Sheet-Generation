@@ -1,275 +1,175 @@
-from __future__ import annotations
-"""Background pipeline task for processing transcription jobs.
+"""Background execution of the transcription pipeline.
 
-Tries to use the real ml_pipeline orchestrator. Falls back to a stub
-simulation when the ML package is not installed (MVP development mode).
+Jobs are queued on a small thread pool (one job at a time by default — the
+ML models are memory hungry) and their progress is written to the database,
+where the SSE endpoint picks it up.
 """
+from __future__ import annotations
 
+import json
 import logging
+import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
 from app.config import settings
 from app.database import SessionLocal
 from app.models import Job, Score, Stem
+from app.services.file_service import get_absolute_path, to_relative
 
 logger = logging.getLogger(__name__)
 
-# Thread pool for CPU-bound ML work
-_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ml-pipeline")
+_executor = ThreadPoolExecutor(
+    max_workers=max(1, settings.MAX_CONCURRENT_JOBS), thread_name_prefix="ml-pipeline"
+)
+_futures: dict[str, Future] = {}
+_lock = threading.Lock()
+
+# The session factory is a module attribute so tests can point it elsewhere.
+session_factory = SessionLocal
+
+# ML pipeline stage → user-facing job status.
+STAGE_TO_STATUS = {
+    "preprocessing": "processing",
+    "separating": "separating",
+    "detecting": "transcribing",
+    "transcribing": "transcribing",
+    "quantizing": "transcribing",
+    "generating_scores": "generating",
+    "complete": "generating",  # becomes "complete" once results are saved
+    "failed": "failed",
+}
+
+FAMILY_SORT = {"vocals": 0, "keys": 1, "guitar": 2, "generic_melodic": 3, "strings": 4, "winds": 5, "bass": 6, "drums": 7}
 
 
-def _update_progress(
-    job_id: str,
-    status: str,
-    progress: float,
-    message: str | None = None,
-) -> None:
-    """Update job progress in the database (called from the background thread)."""
-    db = SessionLocal()
+def submit_job(job_id: str) -> None:
+    """Queue a job for background processing."""
+    with _lock:
+        existing = _futures.get(job_id)
+        if existing is not None and not existing.done():
+            return
+        _futures[job_id] = _executor.submit(run_pipeline, job_id)
+
+
+def is_running(job_id: str) -> bool:
+    with _lock:
+        fut = _futures.get(job_id)
+        return fut is not None and not fut.done()
+
+
+def _update_progress(job_id: str, status: str, progress: float, message: str | None = None) -> None:
+    db = session_factory()
     try:
         job = db.query(Job).filter(Job.id == job_id).first()
         if job:
             job.status = status
-            job.progress = max(0.0, min(1.0, progress))
-            job.progress_message = message
+            # Progress only ever moves forward (no jumping back between stages).
+            job.progress = max(job.progress or 0.0, max(0.0, min(1.0, progress)))
+            job.progress_message = (message or "")[:255] or None
             db.commit()
-            logger.info(
-                "Job %s: %s (%.0f%%) — %s", job_id, status, progress * 100, message
-            )
     finally:
         db.close()
 
 
 def _fail_job(job_id: str, error_message: str) -> None:
-    """Mark a job as failed with an error message."""
-    db = SessionLocal()
+    db = session_factory()
     try:
         job = db.query(Job).filter(Job.id == job_id).first()
         if job:
             job.status = "failed"
-            job.progress = job.progress  # Keep last known progress
             job.error_message = error_message
-            job.progress_message = "Pipeline failed"
+            job.progress_message = "Processing failed"
             db.commit()
             logger.error("Job %s failed: %s", job_id, error_message)
     finally:
         db.close()
 
 
-def _create_stub_stems(job_id: str) -> list[dict]:
-    """Create simulated stem data for MVP development."""
-    return [
-        {
-            "instrument_name": "Piano",
-            "instrument_family": "keyboard",
-            "clef": "treble",
-            "is_percussion": False,
-            "confidence": 0.95,
-        },
-        {
-            "instrument_name": "Bass",
-            "instrument_family": "strings",
-            "clef": "bass",
-            "is_percussion": False,
-            "confidence": 0.88,
-        },
-        {
-            "instrument_name": "Drums",
-            "instrument_family": "percussion",
-            "clef": "percussion",
-            "is_percussion": True,
-            "confidence": 0.92,
-        },
-    ]
-
-
-def _create_stub_scores(job_id: str, stem_ids: list[str]) -> list[dict]:
-    """Create simulated score file data for MVP development."""
-    scores = []
-    scores_dir = settings.SCORES_DIR / job_id
-    scores_dir.mkdir(parents=True, exist_ok=True)
-
-    # Per-stem MusicXML scores
-    for stem_id in stem_ids:
-        score_path = scores_dir / f"{stem_id}.musicxml"
-        score_path.write_text('<?xml version="1.0"?>\n<score-partwise/>\n')
-        scores.append({
-            "stem_id": stem_id,
-            "format": "musicxml",
-            "file_path": str(score_path.relative_to(Path(settings.STORAGE_BASE_PATH))),
-            "is_ensemble": False,
-        })
-
-    # Ensemble score
-    ensemble_path = scores_dir / "ensemble.musicxml"
-    ensemble_path.write_text('<?xml version="1.0"?>\n<score-partwise/>\n')
-    scores.append({
-        "stem_id": None,
-        "format": "musicxml",
-        "file_path": str(ensemble_path.relative_to(Path(settings.STORAGE_BASE_PATH))),
-        "is_ensemble": True,
-    })
-
-    return scores
-
-
-def _run_stub_pipeline(job_id: str, audio_path: str) -> None:
-    """Simulate the ML pipeline with delays for SSE progress visibility."""
-    stages = [
-        ("processing", 0.1, "Analyzing audio file..."),
-        ("processing", 0.2, "Detecting tempo and key signature..."),
-        ("separating", 0.3, "Separating audio into stems..."),
-        ("separating", 0.5, "Isolating instruments..."),
-        ("transcribing", 0.6, "Transcribing notes from stems..."),
-        ("transcribing", 0.75, "Applying pitch correction..."),
-        ("generating", 0.85, "Generating sheet music..."),
-        ("generating", 0.95, "Finalizing score layout..."),
-    ]
-
-    for stage_status, progress, message in stages:
-        _update_progress(job_id, stage_status, progress, message)
-        time.sleep(2)  # Simulate processing time
-
-    # Create simulated results
-    stem_data = _create_stub_stems(job_id)
-    stem_ids: list[str] = []
-
-    db = SessionLocal()
-    try:
-        # Create stem records
-        for data in stem_data:
-            stem = Stem(job_id=job_id, **data)
-            db.add(stem)
-            db.flush()
-            stem_ids.append(stem.id)
-
-        # Create score records
-        score_data = _create_stub_scores(job_id, stem_ids)
-        for data in score_data:
-            score = Score(job_id=job_id, **data)
-            db.add(score)
-
-        # Mark job as complete
-        job = db.query(Job).filter(Job.id == job_id).first()
-        if job:
-            job.status = "complete"
-            job.progress = 1.0
-            job.progress_message = "Transcription complete"
-
-        db.commit()
-        logger.info("Stub pipeline completed for job %s", job_id)
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
-
-
-def _run_real_pipeline(job_id: str, audio_path: str, transcribe_vocals: bool = True, indian_percussion_mode: bool = False) -> None:
-    """Run the real ML pipeline orchestrator."""
-    from ml_pipeline.orchestrator import PipelineOrchestrator
+def _build_config(job: Job):
     from ml_pipeline.config import PipelineConfig
-    from ml_pipeline.data_models import PipelineProgress
 
-    absolute_audio = (Path(settings.STORAGE_BASE_PATH) / audio_path).resolve()
-
-    def progress_callback(progress: PipelineProgress) -> None:
-        _update_progress(job_id, progress.stage.value, progress.progress, progress.message)
-
-    pipeline_config = PipelineConfig(
-        output_dir=Path(settings.STORAGE_BASE_PATH) / "scores" / job_id,
-        stems_dir=Path(settings.STORAGE_BASE_PATH) / "stems" / job_id,
-        transcribe_vocals=transcribe_vocals,
-        indian_percussion_mode=indian_percussion_mode,
-    )
-    
-    orchestrator = PipelineOrchestrator.create_real(config=pipeline_config)
-    result = orchestrator.run(
-        audio_path=str(absolute_audio),
-        progress_callback=progress_callback,
-    )
-
-    # Persist results to database
-    db = SessionLocal()
     try:
-        stem_ids: list[str] = []
+        num, den = (int(x) for x in (job.time_signature or "4/4").split("/"))
+    except ValueError:
+        num, den = 4, 4
 
-        # Create stem records from pipeline result
-        for stem_result in result.stems:
-            rel_audio_path = str(stem_result.audio_path.relative_to(Path(settings.STORAGE_BASE_PATH)))
+    return PipelineConfig(
+        output_dir=settings.SCORES_DIR / job.id,
+        stems_dir=settings.STEMS_DIR / job.id,
+        transcribe_vocals=job.transcribe_vocals,
+        indian_percussion_mode=job.indian_percussion_mode,
+        quantization_grid=PipelineConfig.grid_from_name(job.quantization),
+        bpm_override=job.bpm_override,
+        time_signature=(num, den),
+        title=job.title,
+        max_duration_seconds=settings.MAX_DURATION_SECONDS,
+        max_file_size_mb=settings.MAX_FILE_SIZE_MB,
+        separator_backend=settings.SEPARATOR_BACKEND,
+        separator_model=settings.SEPARATOR_MODEL,
+        use_gpu=settings.USE_GPU,
+        transcribe_lyrics=settings.TRANSCRIBE_LYRICS,
+    )
+
+
+def _persist_results(job_id: str, result) -> None:
+    """Write stems, scores and analysis metadata to the database."""
+    db = session_factory()
+    try:
+        job = db.query(Job).filter(Job.id == job_id).first()
+        if not job:
+            return
+
+        md = result.metadata
+        ordered = sorted(
+            enumerate(result.stems),
+            key=lambda p: (FAMILY_SORT.get(p[1].instrument_info.family.value, 9), p[0]),
+        )
+        for order, (_, sr) in enumerate(ordered):
             stem = Stem(
                 job_id=job_id,
-                instrument_name=stem_result.instrument_info.name,
-                instrument_family=stem_result.instrument_info.family.value,
-                clef=stem_result.instrument_info.clef,
-                is_percussion=stem_result.instrument_info.is_percussion,
-                confidence=stem_result.instrument_info.confidence,
-                audio_path=rel_audio_path,
+                instrument_name=sr.instrument_info.name,
+                instrument_family=sr.instrument_info.family.value,
+                clef=sr.instrument_info.clef,
+                is_percussion=sr.instrument_info.is_percussion,
+                confidence=sr.instrument_info.confidence,
+                audio_path=to_relative(sr.audio_path),
+                stem_name=sr.stem_name or None,
+                note_count=sr.note_count,
+                peaks_path=to_relative(sr.peaks_path) if sr.peaks_path else None,
+                synth_path=to_relative(sr.synth_path) if sr.synth_path else None,
+                sort_order=order,
             )
             db.add(stem)
             db.flush()
-            stem_ids.append(stem.id)
-        # Create score records for each stem
-        scores_dir = Path(settings.STORAGE_BASE_PATH) / "scores" / job_id
-        for stem_id, stem_result in zip(stem_ids, result.stems):
-            part_name = stem_result.instrument_info.name.replace(" ", "_").lower()
-            part_xml = scores_dir / f"{part_name}_score.musicxml"
-            part_midi = scores_dir / f"{part_name}_score.mid"
+            if sr.score:
+                for fmt, path in (("musicxml", sr.score.musicxml_path), ("midi", sr.score.midi_path)):
+                    if path and Path(path).exists():
+                        db.add(Score(job_id=job_id, stem_id=stem.id, format=fmt,
+                                     file_path=to_relative(path), is_ensemble=False))
 
-            formats_and_paths = [
-                ("musicxml", part_xml if part_xml.exists() else None),
-                ("midi", part_midi if part_midi.exists() else None),
-            ]
-            for fmt, path in formats_and_paths:
-                if path:
-                    rel_file_path = str(Path(path).relative_to(Path(settings.STORAGE_BASE_PATH)))
-                    score = Score(
-                        job_id=job_id,
-                        stem_id=stem_id,
-                        format=fmt,
-                        file_path=rel_file_path,
-                        is_ensemble=False,
-                    )
-                    db.add(score)
+        ens = result.ensemble_score
+        if ens:
+            for fmt, path in (("musicxml", ens.musicxml_path), ("midi", ens.midi_path), ("pdf", ens.pdf_path)):
+                if path and Path(path).exists():
+                    db.add(Score(job_id=job_id, stem_id=None, format=fmt,
+                                 file_path=to_relative(path), is_ensemble=True))
 
-        # Create score records from pipeline result
-        if result.ensemble_score:
-            score_out = result.ensemble_score
-            # We will create a DB record for each generated format
-            formats_and_paths = [
-                ("musicxml", score_out.musicxml_path),
-                ("midi", score_out.midi_path),
-                ("pdf", score_out.pdf_path),
-            ]
-            for fmt, path in formats_and_paths:
-                if path:
-                    rel_file_path = str(Path(path).relative_to(Path(settings.STORAGE_BASE_PATH)))
-                    score = Score(
-                        job_id=job_id,
-                        stem_id=None,  # Ensemble score, no specific stem
-                        format=fmt,
-                        file_path=rel_file_path,
-                        is_ensemble=True,
-                    )
-                    db.add(score)
-
-        # Mark job as complete or failed based on result metadata
-        job = db.query(Job).filter(Job.id == job_id).first()
-        if job:
-            if "error" in result.metadata:
-                job.status = "failed"
-                job.error_message = result.metadata["error"]
-                job.progress_message = "Pipeline failed"
-            else:
-                job.status = "complete"
-                job.progress = 1.0
-                job.progress_message = "Transcription complete"
-                job.duration_seconds = result.metadata.get("duration_seconds")
-
+        job.duration_seconds = md.get("duration_seconds")
+        job.tempo_bpm = md.get("global_bpm")
+        job.key_signature = md.get("key")
+        job.beat_times_json = json.dumps(md.get("beat_times") or [])
+        job.separator_used = md.get("separator")
+        job.transcriber_used = md.get("transcriber")
+        job.processing_seconds = md.get("processing_time_seconds")
+        if md.get("mix_peaks_path"):
+            job.peaks_path = to_relative(md["mix_peaks_path"])
+        job.status = "complete"
+        job.progress = 1.0
+        job.progress_message = "Transcription complete"
+        job.error_message = None
         db.commit()
-        logger.info("ML pipeline completed for job %s", job_id)
     except Exception:
         db.rollback()
         raise
@@ -277,56 +177,63 @@ def _run_real_pipeline(job_id: str, audio_path: str, transcribe_vocals: bool = T
         db.close()
 
 
-def run_pipeline(job_id: str, audio_path: str) -> None:
-    """
-    Execute the transcription pipeline for a job.
+def run_pipeline(job_id: str, audio_path: str | None = None) -> None:
+    """Execute the transcription pipeline for a job (blocking)."""
+    from ml_pipeline.orchestrator import PipelineOrchestrator
 
-    Attempts to use the real ml_pipeline orchestrator. Falls back to
-    a stub simulation if the ML package is not installed.
+    db = session_factory()
+    try:
+        job = db.query(Job).filter(Job.id == job_id).first()
+        if not job:
+            logger.warning("Job %s disappeared before processing", job_id)
+            return
+        config = _build_config(job)
+        absolute_audio = get_absolute_path(audio_path or job.audio_path)
+    finally:
+        db.close()
 
-    This function is designed to be called from FastAPI's BackgroundTasks.
-    """
     logger.info("Starting pipeline for job %s", job_id)
-    _update_progress(job_id, "processing", 0.05, "Starting pipeline...")
+    _update_progress(job_id, "processing", 0.01, "Starting…")
+    started = time.time()
+
+    def progress_callback(progress) -> None:
+        status = STAGE_TO_STATUS.get(progress.stage.value, "processing")
+        if status == "failed":
+            return  # handled below with the real error message
+        _update_progress(job_id, status, min(progress.progress, 0.99), progress.message)
 
     try:
-        # Fetch the job to read configuration flags
-        db = SessionLocal()
-        transcribe_vocals = True
-        indian_percussion_mode = False
-        try:
-            job = db.query(Job).filter(Job.id == job_id).first()
-            if job:
-                transcribe_vocals = job.transcribe_vocals
-                indian_percussion_mode = job.indian_percussion_mode
-        finally:
-            db.close()
+        orchestrator = PipelineOrchestrator.create_real(config=config)
+        result = orchestrator.run(absolute_audio, progress_callback=progress_callback)
+        if "error" in result.metadata:
+            _fail_job(job_id, _friendly_error(result.metadata["error"]))
+            return
+        _persist_results(job_id, result)
+        logger.info("Job %s complete in %.1fs", job_id, time.time() - started)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Pipeline crashed for job %s", job_id)
+        _fail_job(job_id, _friendly_error(str(exc)))
 
-        try:
-            import ml_pipeline.orchestrator  # noqa: F401
-            logger.info("Using real ML pipeline for job %s", job_id)
-            pipeline_func = _run_real_pipeline
-            pipeline_args = (job_id, audio_path)
-            pipeline_kwargs = {
-                "transcribe_vocals": transcribe_vocals,
-                "indian_percussion_mode": indian_percussion_mode
-            }
-        except ImportError:
-            logger.warning(
-                "ml_pipeline not installed — using stub pipeline for job %s", job_id
-            )
-            pipeline_func = _run_stub_pipeline
-            pipeline_args = (job_id, audio_path)
-            pipeline_kwargs = {}
 
-        # Run with a 10 minute timeout (600 seconds)
-        future = _executor.submit(pipeline_func, *pipeline_args, **pipeline_kwargs)
-        try:
-            future.result(timeout=600)
-        except TimeoutError:
-            logger.error("Pipeline timed out for job %s after 10 minutes", job_id)
-            _fail_job(job_id, "Pipeline execution timed out. The file might be too large or complex.")
-            
-    except Exception as exc:
-        logger.exception("Pipeline failed for job %s", job_id)
-        _fail_job(job_id, str(exc))
+def _friendly_error(message: str) -> str:
+    lower = message.lower()
+    if "no space left" in lower:
+        return "The server ran out of disk space while processing this file."
+    if "out of memory" in lower or "cannot allocate" in lower:
+        return "The server ran out of memory. Try a shorter clip."
+    return message or "Unknown error"
+
+
+def recover_interrupted_jobs() -> int:
+    """Mark jobs left mid-processing by a previous server run as failed."""
+    db = session_factory()
+    try:
+        stuck = db.query(Job).filter(Job.status.notin_(Job.TERMINAL_STATUSES)).all()
+        for job in stuck:
+            job.status = "failed"
+            job.error_message = "Processing was interrupted because the server restarted. Click “Retry” to process it again."
+            job.progress_message = "Interrupted"
+        db.commit()
+        return len(stuck)
+    finally:
+        db.close()

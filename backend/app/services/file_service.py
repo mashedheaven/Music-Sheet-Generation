@@ -1,10 +1,11 @@
 """File management service for uploads, stems, and score artifacts."""
 
 import logging
+import re
 import shutil
 from pathlib import Path
 
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile, status
 
 from app.config import settings
 
@@ -20,72 +21,76 @@ def ensure_directories() -> None:
         settings.EXPORTS_DIR,
     ):
         directory.mkdir(parents=True, exist_ok=True)
-        logger.debug("Ensured directory exists: %s", directory)
+
+
+def _safe_filename(name: str | None) -> str:
+    name = Path(name or "upload").name
+    stem, suffix = Path(name).stem, Path(name).suffix.lower()
+    stem = re.sub(r"[^\w\-. ]+", "_", stem).strip(" .") or "upload"
+    return f"{stem[:120]}{suffix}"
 
 
 async def save_upload(file: UploadFile, job_id: str) -> str:
     """
-    Save an uploaded file to the uploads directory.
-
-    Args:
-        file: The uploaded file from the request.
-        job_id: UUID of the job, used to namespace the file.
+    Save an uploaded file to the uploads directory, enforcing the size limit
+    while streaming (so huge uploads are rejected without filling the disk).
 
     Returns:
-        Relative path to the saved file (relative to STORAGE_BASE_PATH).
+        Path to the saved file, relative to the storage directory.
     """
-    # Create a job-specific upload directory
     job_upload_dir = settings.UPLOAD_DIR / job_id
     job_upload_dir.mkdir(parents=True, exist_ok=True)
+    dest_path = job_upload_dir / _safe_filename(file.filename)
 
-    # Sanitize the filename and preserve extension
-    safe_filename = Path(file.filename).name if file.filename else "upload"
-    dest_path = job_upload_dir / safe_filename
-
-    # Stream the file to disk to handle large files efficiently
+    written = 0
     try:
         with dest_path.open("wb") as buffer:
-            while chunk := await file.read(1024 * 64):  # 64KB chunks
+            while chunk := await file.read(1024 * 256):
+                written += len(chunk)
+                if written > settings.MAX_FILE_SIZE_BYTES:
+                    raise HTTPException(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        detail=f"File too large. Maximum size: {settings.MAX_FILE_SIZE_MB} MB",
+                    )
                 buffer.write(chunk)
     except Exception:
-        # Clean up partial file on failure
-        if dest_path.exists():
-            dest_path.unlink()
+        shutil.rmtree(job_upload_dir, ignore_errors=True)
         raise
 
-    # Return path relative to storage base
-    relative_path = str(dest_path.relative_to(Path(settings.STORAGE_BASE_PATH)))
-    logger.info("Saved upload: %s (%d bytes)", relative_path, dest_path.stat().st_size)
+    relative_path = to_relative(dest_path)
+    logger.info("Saved upload: %s (%d bytes)", relative_path, written)
     return relative_path
+
+
+def to_relative(path: Path | str) -> str:
+    """Express an absolute path relative to the storage directory."""
+    return str(Path(path).resolve().relative_to(settings.STORAGE_DIR))
 
 
 def get_absolute_path(relative_path: str) -> Path:
     """
     Resolve a storage-relative path to an absolute filesystem path.
 
-    Args:
-        relative_path: Path relative to the storage base directory.
-
-    Returns:
-        Absolute Path object.
+    Refuses paths that escape the storage directory.
     """
-    return (Path(settings.STORAGE_BASE_PATH) / relative_path).resolve()
+    absolute = (settings.STORAGE_DIR / relative_path).resolve()
+    if settings.STORAGE_DIR not in absolute.parents and absolute != settings.STORAGE_DIR:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+    return absolute
 
 
-def delete_job_files(job_id: str) -> None:
-    """
-    Remove all files associated with a job from every storage directory.
-
-    Args:
-        job_id: UUID of the job whose files should be deleted.
-    """
-    for base_dir in (
-        settings.UPLOAD_DIR,
-        settings.STEMS_DIR,
-        settings.SCORES_DIR,
-        settings.EXPORTS_DIR,
-    ):
+def delete_job_outputs(job_id: str) -> None:
+    """Remove generated stems/scores for a job (keeps the original upload)."""
+    for base_dir in (settings.STEMS_DIR, settings.SCORES_DIR, settings.EXPORTS_DIR):
         job_dir = base_dir / job_id
         if job_dir.exists():
             shutil.rmtree(job_dir, ignore_errors=True)
-            logger.info("Deleted files at: %s", job_dir)
+
+
+def delete_job_files(job_id: str) -> None:
+    """Remove all files associated with a job from every storage directory."""
+    delete_job_outputs(job_id)
+    job_dir = settings.UPLOAD_DIR / job_id
+    if job_dir.exists():
+        shutil.rmtree(job_dir, ignore_errors=True)
+    logger.info("Deleted files for job %s", job_id)

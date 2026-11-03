@@ -1,18 +1,18 @@
 """FastAPI application entry point."""
 
 import logging
-from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+from functools import lru_cache
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import settings
+from app.config import settings  # noqa: F401 — also puts ml_pipeline on sys.path
 from app.database import init_db
 from app.routers import files, jobs, progress
 from app.services.file_service import ensure_directories
-
-# ── Logging setup ────────────────────────────────────────────────────────────
+from app.tasks.pipeline import recover_interrupted_jobs
 
 logging.basicConfig(
     level=logging.INFO,
@@ -21,33 +21,44 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+API_VERSION = "1.0.0"
 
-# ── Application lifespan ─────────────────────────────────────────────────────
+
+@lru_cache(maxsize=1)
+def engine_capabilities() -> dict:
+    try:
+        from ml_pipeline.orchestrator import capabilities
+
+        return capabilities()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not inspect ML capabilities: %s", exc)
+        return {"separator": "unknown", "transcriber": "unknown", "lyrics": False}
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Startup and shutdown lifecycle for the application."""
-    logger.info("Starting Music Sheet Generation API...")
+    logger.info("Starting MuSheet API…")
     init_db()
     ensure_directories()
-    logger.info("Startup complete.")
+    recovered = recover_interrupted_jobs()
+    if recovered:
+        logger.warning("Marked %d interrupted job(s) as failed", recovered)
+    caps = engine_capabilities()
+    logger.info("Engines: separation=%s, transcription=%s", caps.get("separator"), caps.get("transcriber"))
     yield
     logger.info("Shutting down.")
 
 
-# ── Application factory ─────────────────────────────────────────────────────
-
 app = FastAPI(
-    title="Music Sheet Generation API",
+    title="MuSheet API",
     description=(
-        "API for uploading audio files, separating instruments, "
-        "transcribing notes, and generating sheet music."
+        "Upload audio, separate it into instrument stems, transcribe each "
+        "stem and generate sheet music (MusicXML + MIDI)."
     ),
-    version="0.1.0",
+    version=API_VERSION,
     lifespan=lifespan,
 )
-
-# ── CORS middleware ──────────────────────────────────────────────────────────
 
 app.add_middleware(
     CORSMiddleware,
@@ -55,23 +66,20 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition", "Content-Range", "Accept-Ranges"],
 )
-
-# ── Routers ──────────────────────────────────────────────────────────────────
 
 app.include_router(jobs.router, prefix="/api")
 app.include_router(files.router, prefix="/api")
 app.include_router(progress.router, prefix="/api")
 
 
-# ── Root & health endpoints ──────────────────────────────────────────────────
-
 @app.get("/", tags=["Root"])
 def root() -> dict:
     """API information and welcome endpoint."""
     return {
-        "name": "Music Sheet Generation API",
-        "version": "0.1.0",
+        "name": "MuSheet API",
+        "version": API_VERSION,
         "docs": "/docs",
         "health": "/api/health",
     }
@@ -79,5 +87,14 @@ def root() -> dict:
 
 @app.get("/api/health", tags=["Health"])
 def health_check() -> dict:
-    """Health check endpoint for monitoring."""
-    return {"status": "healthy"}
+    """Health check, including which ML engines are available."""
+    return {
+        "status": "healthy",
+        "version": API_VERSION,
+        "engines": engine_capabilities(),
+        "limits": {
+            "max_file_size_mb": settings.MAX_FILE_SIZE_MB,
+            "max_duration_seconds": settings.MAX_DURATION_SECONDS,
+            "allowed_extensions": settings.ALLOWED_EXTENSIONS,
+        },
+    }
