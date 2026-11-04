@@ -1,0 +1,19 @@
+# Optional high-quality engines. Without them MuSheet still works, using a
+# DSP-based stem separator and a pitch-tracking transcriber.
+#
+#   pip install -r backend/requirements-ml.txt
+#   pip install --no-deps basic-pitch
+#
+# Demucs (source separation). On Linux without a GPU you can save ~3 GB by
+# installing the CPU build of torch first:
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+torch>=2.1
+demucs>=4.0.0
+dora-search
+einops
+julius
+lameenc
+openunmix
+
+# Lyrics on the vocal line (large download; optional)
+# openai-whisper>=20231117

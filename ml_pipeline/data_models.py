@@ -122,12 +122,16 @@ class TempoInfo:
         time_signature_numerator: Top number of time signature (beats per measure).
         time_signature_denominator: Bottom number of time signature (beat unit).
         beat_positions: List of beat onset times in seconds.
+        beat_offset: Time (seconds) of the first beat-grid line. Notes are
+            quantized relative to this so that the grid lines up with the
+            actual pulse of the recording instead of with t=0.
     """
 
     bpm: float = 120.0
     time_signature_numerator: int = 4
     time_signature_denominator: int = 4
     beat_positions: list[float] = field(default_factory=list)
+    beat_offset: float = 0.0
 
     @property
     def beat_duration(self) -> float:
@@ -226,11 +230,15 @@ class ScoreOutput:
         musicxml_path: Path to the MusicXML (.musicxml) file.
         midi_path: Path to the MIDI (.mid) file.
         pdf_path: Path to the PDF rendering, if available.
+        parts: Per-instrument score outputs (same order as the input parts).
+        key_name: Detected key, e.g. "G major".
     """
 
     musicxml_path: Optional[Path] = None
     midi_path: Optional[Path] = None
     pdf_path: Optional[Path] = None
+    parts: list["ScoreOutput"] = field(default_factory=list)
+    key_name: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary."""
@@ -238,6 +246,8 @@ class ScoreOutput:
             "musicxml_path": str(self.musicxml_path) if self.musicxml_path else None,
             "midi_path": str(self.midi_path) if self.midi_path else None,
             "pdf_path": str(self.pdf_path) if self.pdf_path else None,
+            "parts": [p.to_dict() for p in self.parts],
+            "key_name": self.key_name,
         }
 
 
@@ -250,12 +260,20 @@ class StemResult:
         audio_path: Path to the separated audio stem file.
         transcription: Transcription of the stem, if completed.
         score: Generated score for this stem, if completed.
+        stem_name: Raw separator stem name ("vocals", "drums", ...).
+        note_count: Number of notes in the final (cleaned, quantized) part.
+        peaks_path: JSON file with waveform peaks for the UI.
+        synth_path: Audio rendering of the transcribed notes.
     """
 
     instrument_info: InstrumentInfo
     audio_path: Path
     transcription: Optional[TranscriptionResult] = None
     score: Optional[ScoreOutput] = None
+    stem_name: str = ""
+    note_count: int = 0
+    peaks_path: Optional[Path] = None
+    synth_path: Optional[Path] = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary."""
@@ -264,6 +282,10 @@ class StemResult:
             "audio_path": str(self.audio_path),
             "transcription": self.transcription.to_dict() if self.transcription else None,
             "score": self.score.to_dict() if self.score else None,
+            "stem_name": self.stem_name,
+            "note_count": self.note_count,
+            "peaks_path": str(self.peaks_path) if self.peaks_path else None,
+            "synth_path": str(self.synth_path) if self.synth_path else None,
         }
 
 

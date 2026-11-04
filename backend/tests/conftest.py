@@ -1,28 +1,33 @@
 """Shared test fixtures for the backend test suite."""
 
 import io
-import struct
+import os
+import tempfile
 import wave
 from collections.abc import Generator
 
-import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
+# Isolate storage and the app database from real data *before* app imports.
+_TMP = tempfile.mkdtemp(prefix="musheet-test-")
+os.environ["STORAGE_BASE_PATH"] = os.path.join(_TMP, "storage")
+os.environ["DATABASE_URL"] = f"sqlite:///{os.path.join(_TMP, 'app.db')}"
 
-from app import models  # Register models
-from app.database import Base, get_db
-from app.main import app
-from app.services.file_service import ensure_directories
+import numpy as np  # noqa: E402
+import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy import create_engine, event  # noqa: E402
+from sqlalchemy.orm import Session, sessionmaker  # noqa: E402
+from sqlalchemy.pool import StaticPool  # noqa: E402
 
+from app import models  # noqa: E402,F401 — register models
+from app.database import Base, get_db  # noqa: E402
+from app.main import app  # noqa: E402
+from app.services.file_service import ensure_directories  # noqa: E402
+from app.tasks import pipeline  # noqa: E402
 
 # ── In-memory SQLite test database ───────────────────────────────────────────
 
-TEST_DATABASE_URL = "sqlite://"  # In-memory
-
 test_engine = create_engine(
-    TEST_DATABASE_URL,
+    "sqlite://",
     connect_args={"check_same_thread": False},
     poolclass=StaticPool,
 )
@@ -38,9 +43,6 @@ def _set_sqlite_pragma(dbapi_conn, connection_record):
 TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
 
-# ── Fixtures ─────────────────────────────────────────────────────────────────
-
-
 @pytest.fixture(autouse=True)
 def setup_test_db() -> Generator[None, None, None]:
     """Create all tables before each test and drop them after."""
@@ -51,7 +53,6 @@ def setup_test_db() -> Generator[None, None, None]:
 
 @pytest.fixture()
 def db_session() -> Generator[Session, None, None]:
-    """Provide a transactional test database session."""
     session = TestSessionLocal()
     try:
         yield session
@@ -60,14 +61,20 @@ def db_session() -> Generator[Session, None, None]:
 
 
 @pytest.fixture()
-def client(db_session: Session) -> Generator[TestClient, None, None]:
+def submitted(monkeypatch) -> list[str]:
+    """Capture queued job ids instead of running the (slow) ML pipeline."""
+    calls: list[str] = []
+    monkeypatch.setattr(pipeline, "submit_job", lambda job_id: calls.append(job_id))
+    monkeypatch.setattr(pipeline, "is_running", lambda job_id: False)
+    return calls
+
+
+@pytest.fixture()
+def client(db_session: Session, submitted) -> Generator[TestClient, None, None]:
     """Provide a test client with the test database injected."""
 
     def _override_get_db() -> Generator[Session, None, None]:
-        try:
-            yield db_session
-        finally:
-            pass
+        yield db_session
 
     app.dependency_overrides[get_db] = _override_get_db
     ensure_directories()
@@ -78,20 +85,35 @@ def client(db_session: Session) -> Generator[TestClient, None, None]:
     app.dependency_overrides.clear()
 
 
-@pytest.fixture()
-def sample_wav_bytes() -> bytes:
-    """Generate a minimal valid WAV file in memory (0.1 seconds of silence)."""
+def _wav_bytes(samples: np.ndarray, sr: int = 44100) -> bytes:
     buffer = io.BytesIO()
     with wave.open(buffer, "wb") as wf:
         wf.setnchannels(1)
         wf.setsampwidth(2)
-        wf.setframerate(44100)
-        # 0.1 seconds of silence = 4410 frames of 16-bit zeros
-        wf.writeframes(b"\x00\x00" * 4410)
+        wf.setframerate(sr)
+        wf.writeframes((np.clip(samples, -1, 1) * 32767).astype("<i2").tobytes())
     return buffer.getvalue()
 
 
 @pytest.fixture()
+def sample_wav_bytes() -> bytes:
+    """A minimal valid WAV file (0.1 seconds of silence)."""
+    return _wav_bytes(np.zeros(4410))
+
+
+@pytest.fixture()
+def melody_wav_bytes() -> bytes:
+    """Four seconds of a simple C–E–G–C melody (for end-to-end tests)."""
+    sr = 44100
+    out = []
+    for midi in (60, 64, 67, 72) * 2:
+        t = np.arange(int(0.5 * sr)) / sr
+        f = 440.0 * 2 ** ((midi - 69) / 12)
+        env = np.minimum(1, t * 50) * np.exp(-t * 2)
+        out.append(0.5 * env * (np.sin(2 * np.pi * f * t) + 0.3 * np.sin(4 * np.pi * f * t)))
+    return _wav_bytes(np.concatenate(out), sr)
+
+
+@pytest.fixture()
 def sample_wav_file(sample_wav_bytes: bytes) -> io.BytesIO:
-    """Provide a file-like BytesIO object containing a valid WAV file."""
     return io.BytesIO(sample_wav_bytes)

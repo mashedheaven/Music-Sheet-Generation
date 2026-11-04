@@ -36,8 +36,16 @@ backend/storage/exports/*
 
 # Database
 *.db
+*.db-wal
+*.db-shm
+*.db-journal
 *.sqlite
 *.sqlite3
+
+# Pipeline outputs
+backend/output/
+/storage/
+output/
 
 # Environment
 .env
@@ -54,3 +62,6 @@ ml_pipeline/models/
 .coverage
 htmlcov/
 .pytest_cache/
+
+# Demo output
+demo_output/

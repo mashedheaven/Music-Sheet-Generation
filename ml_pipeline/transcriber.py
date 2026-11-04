@@ -5,6 +5,11 @@ audio stems into discrete note events.
 """
 from __future__ import annotations
 
+import bisect
+import contextlib
+import importlib.util
+import logging
+import warnings
 from pathlib import Path
 from typing import List
 
@@ -16,6 +21,9 @@ from ml_pipeline.data_models import (
     TranscriptionResult,
 )
 from ml_pipeline.interfaces import AudioTranscriber
+from ml_pipeline.note_cleanup import clean_notes
+
+logger = logging.getLogger(__name__)
 
 
 class MockTranscriber(AudioTranscriber):
@@ -296,152 +304,349 @@ class MockTranscriber(AudioTranscriber):
         return notes
 
 
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Real transcribers
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def basic_pitch_available() -> bool:
+    """True when Basic Pitch and at least one inference backend can load."""
+    if importlib.util.find_spec("basic_pitch") is None:
+        return False
+    try:
+        with _quiet_logs():
+            from basic_pitch import ICASSP_2022_MODEL_PATH  # noqa: F401
+            from basic_pitch.inference import Model  # noqa: F401
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("basic-pitch is installed but failed to import: %s", exc)
+        return False
+    return True
+
+
+def whisper_available() -> bool:
+    return importlib.util.find_spec("whisper") is not None
+
+
+@contextlib.contextmanager
+def _quiet_logs():
+    """basic-pitch logs noisy warnings about optional backends on import."""
+    root = logging.getLogger()
+    level = root.level
+    root.setLevel(logging.ERROR)
+    try:
+        yield
+    finally:
+        root.setLevel(level)
+
+
+# Per-family Basic Pitch settings: (onset_thr, frame_thr, min_note_ms, fmin, fmax)
+_BP_PARAMS: dict[InstrumentFamily, tuple[float, float, float, float, float]] = {
+    InstrumentFamily.VOCALS: (0.5, 0.3, 120.0, 80.0, 1200.0),
+    InstrumentFamily.BASS: (0.45, 0.3, 100.0, 30.0, 420.0),
+    InstrumentFamily.GUITAR: (0.5, 0.32, 90.0, 75.0, 2000.0),
+    InstrumentFamily.KEYS: (0.5, 0.3, 80.0, 27.0, 4200.0),
+    InstrumentFamily.GENERIC_MELODIC: (0.55, 0.35, 100.0, 60.0, 3000.0),
+}
+
+
 class BasicPitchTranscriber(AudioTranscriber):
     """Audio transcriber using Spotify's Basic Pitch model.
 
-    Basic Pitch predicts MIDI notes from monophonic or polyphonic audio.
-    It works best for melodic instruments (vocals, guitar, piano, bass).
+    Works with whichever inference backend is installed (TensorFlow, CoreML,
+    TFLite or ONNX Runtime). Percussion is delegated to ``DrumTranscriber``.
     """
 
-    def transcribe(
-        self, audio_path: Path, instrument: InstrumentInfo
-    ) -> TranscriptionResult:
-        """Transcribe audio using the Basic Pitch model.
+    name = "basic-pitch"
+    _model = None
 
-        Args:
-            audio_path: Path to the audio stem.
-            instrument: Instrument metadata.
+    def __init__(self, transcribe_lyrics: bool = True) -> None:
+        self.transcribe_lyrics = transcribe_lyrics
+        self.drums = DrumTranscriber()
 
-        Returns:
-            TranscriptionResult with notes predicted by Basic Pitch.
-        """
-        import librosa
-        from basic_pitch.inference import predict
-        from basic_pitch import ICASSP_2022_MODEL_PATH
+    @classmethod
+    def _get_model(cls):
+        if cls._model is None:
+            with _quiet_logs():
+                from basic_pitch import ICASSP_2022_MODEL_PATH
+                from basic_pitch.inference import Model
 
+                cls._model = Model(ICASSP_2022_MODEL_PATH)
+        return cls._model
+
+    def transcribe(self, audio_path: Path, instrument: InstrumentInfo) -> TranscriptionResult:
         if instrument.is_percussion:
-            # Basic Pitch is not designed for percussion.
-            # In a real system we would use madmom or onset detection here.
-            # For this MVP, we will fallback to a simple onset detector using librosa.
-            return self._transcribe_percussion(audio_path, instrument)
+            return self.drums.transcribe(audio_path, instrument)
 
-        # Run Basic Pitch prediction
-        # Returns: model_output, midi_data, note_events
-        # note_events is a list of tuples: (start_time_s, end_time_s, pitch_midi, amplitude, pitch_bends)
-        _, _, note_events = predict(
-            str(audio_path),
-            ICASSP_2022_MODEL_PATH,
-            onset_threshold=0.5,
-            frame_threshold=0.3,
-            minimum_note_length=11,
-            minimum_frequency=None,
-            maximum_frequency=None,
+        if _is_silent(audio_path):
+            return TranscriptionResult(notes=[], instrument=instrument, tempo_info=TempoInfo())
+
+        with _quiet_logs():
+            from basic_pitch.inference import predict
+
+        onset_t, frame_t, min_ms, fmin, fmax = _BP_PARAMS.get(
+            instrument.family, _BP_PARAMS[InstrumentFamily.GENERIC_MELODIC]
         )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            _, _, note_events = predict(
+                str(audio_path),
+                self._get_model(),
+                onset_threshold=onset_t,
+                frame_threshold=frame_t,
+                minimum_note_length=min_ms,
+                minimum_frequency=fmin,
+                maximum_frequency=fmax,
+                multiple_pitch_bends=False,
+                melodia_trick=True,
+            )
 
         notes: List[Note] = []
-        for start_s, end_s, pitch_midi, amplitude, _ in note_events:
+        for start_s, end_s, pitch_midi, amplitude, *_ in note_events:
+            pitch = int(round(pitch_midi))
+            if not 0 <= pitch <= 127 or end_s <= start_s:
+                continue
             notes.append(Note(
-                pitch=int(round(pitch_midi)),
+                pitch=pitch,
                 onset=float(start_s),
                 offset=float(end_s),
-                velocity=int(min(max(amplitude * 127, 0), 127)),
+                velocity=int(min(max(amplitude * 127, 1), 127)),
                 channel=0,
             ))
 
-        tempo_info = TempoInfo()
+        notes = clean_notes(notes, instrument)
 
-        if instrument.family == InstrumentFamily.VOCALS:
-            notes = self._transcribe_lyrics(audio_path, notes)
+        if instrument.family == InstrumentFamily.VOCALS and self.transcribe_lyrics and whisper_available():
+            try:
+                notes = transcribe_lyrics(audio_path, notes)
+            except Exception as exc:  # noqa: BLE001 — lyrics are optional
+                logger.warning("Lyrics transcription failed: %s", exc)
 
-        return TranscriptionResult(
-            notes=notes,
-            instrument=instrument,
-            tempo_info=tempo_info,
-        )
+        return TranscriptionResult(notes=notes, instrument=instrument, tempo_info=TempoInfo())
 
-    def _transcribe_lyrics(self, audio_path: Path, notes: List[Note]) -> List[Note]:
-        """Transcribe lyrics using Whisper and align them to notes."""
-        import whisper
-        import warnings
-        
-        # Suppress warnings from Whisper/FP16 if on CPU
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            # Using 'base' model for decent speed/accuracy tradeoff
-            model = whisper.load_model("base")
-            # Word-level timestamps require word_timestamps=True
-            result = model.transcribe(str(audio_path), word_timestamps=True)
 
-        if not result.get("segments"):
-            return notes
+class PitchTrackTranscriber(AudioTranscriber):
+    """Fallback melodic transcriber built on librosa's pYIN pitch tracker.
 
-        words = []
-        for segment in result["segments"]:
-            for word_info in segment.get("words", []):
-                words.append(word_info)
+    Monophonic only — it extracts the dominant melodic line of each stem.
+    Used automatically when Basic Pitch is not installed.
+    """
 
-        if not words:
-            return notes
+    name = "pyin"
 
-        # Simple alignment: assign each word to the first note that falls within its timestamp,
-        # or the closest note.
-        for word_info in words:
-            word_text = word_info["word"].strip()
-            word_start = word_info["start"]
-            word_end = word_info["end"]
-            
-            if not word_text:
-                continue
+    _RANGES: dict[InstrumentFamily, tuple[str, str]] = {
+        InstrumentFamily.VOCALS: ("E2", "C6"),
+        InstrumentFamily.BASS: ("B0", "G3"),
+        InstrumentFamily.GUITAR: ("E2", "E6"),
+        InstrumentFamily.KEYS: ("A1", "C7"),
+    }
 
-            # Find the best note for this word
-            # We look for a note whose onset is close to the word start
-            best_note = None
-            min_dist = float('inf')
-            
-            for note in notes:
-                # If note already has a lyric, skip it
-                if note.lyric:
-                    continue
-                    
-                # Calculate distance between word start and note onset
-                dist = abs(note.onset - word_start)
-                
-                # If the note starts roughly around the same time as the word
-                if dist < 0.5 and dist < min_dist:
-                    min_dist = dist
-                    best_note = note
-                    
-            if best_note:
-                best_note.lyric = word_text
-                
-        return notes
+    def __init__(self) -> None:
+        self.drums = DrumTranscriber()
 
-    def _transcribe_percussion(self, audio_path: Path, instrument: InstrumentInfo) -> TranscriptionResult:
-        """Simple onset-based drum transcription for MVP."""
+    def transcribe(self, audio_path: Path, instrument: InstrumentInfo) -> TranscriptionResult:
         import librosa
         import numpy as np
 
-        y, sr = librosa.load(str(audio_path), sr=None)
-        
-        # Detect onsets
-        onset_frames = librosa.onset.onset_detect(y=y, sr=sr, wait=1, pre_avg=1, post_avg=1, pre_max=1, post_max=1)
-        onset_times = librosa.frames_to_time(onset_frames, sr=sr)
-        
-        notes: List[Note] = []
-        for onset in onset_times:
-            # Simple heuristic: we just map everything to a closed hi-hat or snare for the MVP
-            # A more sophisticated model would classify the drum hit type.
-            notes.append(Note(
-                pitch=42,  # Closed hi-hat GM midi
-                onset=float(onset),
-                offset=float(onset) + 0.1,  # 100ms duration
-                velocity=100,
-                channel=9,
-            ))
-            
-        tempo_info = TempoInfo()
-        return TranscriptionResult(
-            notes=notes,
-            instrument=instrument,
-            tempo_info=tempo_info,
+        if instrument.is_percussion:
+            return self.drums.transcribe(audio_path, instrument)
+        if _is_silent(audio_path):
+            return TranscriptionResult(notes=[], instrument=instrument, tempo_info=TempoInfo())
+
+        sr = 22050
+        hop = 256
+        y, _ = librosa.load(str(audio_path), sr=sr, mono=True)
+        lo, hi = self._RANGES.get(instrument.family, ("C2", "C6"))
+        f0, voiced, voiced_prob = librosa.pyin(
+            y,
+            fmin=librosa.note_to_hz(lo),
+            fmax=librosa.note_to_hz(hi),
+            sr=sr,
+            frame_length=2048,
+            hop_length=hop,
         )
+        rms = librosa.feature.rms(y=y, frame_length=2048, hop_length=hop)[0]
+        rms = rms[: f0.size]
+        loud_floor = max(1e-4, float(np.percentile(rms, 30)))
+        times = librosa.times_like(f0, sr=sr, hop_length=hop)
+
+        midi = np.full(f0.shape, -1)
+        ok = voiced & (voiced_prob > 0.4) & (rms[: f0.size] > loud_floor)
+        midi[ok] = np.round(librosa.hz_to_midi(f0[ok])).astype(int)
+        # Smooth single-frame jitter.
+        from scipy.ndimage import median_filter
+
+        midi = median_filter(midi, size=5)
+
+        notes: List[Note] = []
+        rms_ref = float(np.percentile(rms, 95)) or 1.0
+        start = None
+        for i in range(midi.size + 1):
+            cur = midi[i] if i < midi.size else -1
+            if start is not None and (cur != midi[start]):
+                pitch = int(midi[start])
+                if pitch >= 0:
+                    seg_rms = float(rms[start:i].mean())
+                    notes.append(Note(
+                        pitch=pitch,
+                        onset=float(times[start]),
+                        offset=float(times[min(i, times.size - 1)]),
+                        velocity=int(min(127, max(20, 127 * seg_rms / rms_ref))),
+                    ))
+                start = None
+            if start is None and cur >= 0:
+                start = i
+
+        notes = clean_notes(notes, instrument)
+        return TranscriptionResult(notes=notes, instrument=instrument, tempo_info=TempoInfo())
+
+
+class DrumTranscriber(AudioTranscriber):
+    """Onset detection + spectral classification for drum stems.
+
+    Every onset is classified from how much energy it adds in four bands:
+
+    * low  (30–150 Hz)   → kick
+    * mid  (150–1000 Hz) + noise (1–5 kHz) → snare (broadband crack)
+    * high (5–16 kHz)    → hi-hat / cymbals
+
+    Hits are mapped to General MIDI drum numbers (36 kick, 38 snare,
+    42 closed hi-hat, 49 crash).
+    """
+
+    name = "drum-classifier"
+
+    BANDS = {"low": (30.0, 150.0), "mid": (150.0, 1000.0), "noise": (1000.0, 5000.0), "high": (5000.0, 16000.0)}
+
+    def transcribe(self, audio_path: Path, instrument: InstrumentInfo) -> TranscriptionResult:
+        import librosa
+        import numpy as np
+
+        if _is_silent(audio_path):
+            return TranscriptionResult(notes=[], instrument=instrument, tempo_info=TempoInfo())
+
+        sr = 44100
+        hop = 441  # 10 ms frames
+        y, _ = librosa.load(str(audio_path), sr=sr, mono=True)
+        power = np.abs(librosa.stft(y, n_fft=2048, hop_length=hop)) ** 2
+        freqs = librosa.fft_frequencies(sr=sr, n_fft=2048)
+        bands = {k: power[(freqs >= lo) & (freqs < hi)].sum(axis=0) for k, (lo, hi) in self.BANDS.items()}
+        refs = {k: float(np.percentile(v, 99)) or 1.0 for k, v in bands.items()}
+
+        onset_env = librosa.onset.onset_strength(S=librosa.power_to_db(power), sr=sr, hop_length=hop)
+        onset_frames = librosa.onset.onset_detect(
+            onset_envelope=onset_env, sr=sr, hop_length=hop, wait=4, delta=0.07, backtrack=False
+        )
+
+        notes: List[Note] = []
+        n_frames = power.shape[1]
+        for f in onset_frames:
+            pre = slice(max(0, f - 5), max(1, f - 1))
+            post = slice(f, min(n_frames, f + 5))
+            inc = {
+                k: max(0.0, float(v[post].max() - v[pre].min())) / refs[k]
+                for k, v in bands.items()
+            }
+            t = float(librosa.frames_to_time(f, sr=sr, hop_length=hop))
+            hits: list[tuple[int, float]] = []
+            is_snare = inc["noise"] >= 0.3 and inc["mid"] >= 0.15
+            is_kick = inc["low"] >= 0.3 and (inc["low"] >= 0.5 * inc["noise"] or inc["low"] >= 0.8)
+            if is_kick:
+                hits.append((36, inc["low"]))
+            if is_snare:
+                hits.append((38, inc["noise"]))
+            if inc["high"] >= 0.12 and (not is_snare or inc["high"] >= 1.3 * inc["noise"]):
+                # Long, loud high-band events are crashes rather than hats.
+                tail = bands["high"][min(n_frames - 1, f + 30)] / refs["high"]
+                gm = 49 if inc["high"] > 0.9 and tail > 0.35 else 42
+                hits.append((gm, inc["high"]))
+            for gm, strength in hits:
+                notes.append(Note(
+                    pitch=gm,
+                    onset=t,
+                    offset=t + 0.1,
+                    velocity=int(min(127, 45 + 70 * min(1.0, strength))),
+                    channel=9,
+                ))
+
+        notes.sort(key=lambda n: (n.onset, n.pitch))
+        return TranscriptionResult(notes=notes, instrument=instrument, tempo_info=TempoInfo())
+
+
+# ── Lyrics ──────────────────────────────────────────────────────────────────
+
+_whisper_model = None
+
+
+def transcribe_lyrics(audio_path: Path, notes: List[Note]) -> List[Note]:
+    """Transcribe lyrics with Whisper and attach each word to the nearest note."""
+    global _whisper_model
+    import whisper
+
+    if not notes:
+        return notes
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        if _whisper_model is None:
+            _whisper_model = whisper.load_model("base")
+        result = _whisper_model.transcribe(str(audio_path), word_timestamps=True, fp16=False)
+
+    words = [w for seg in result.get("segments", []) for w in seg.get("words", [])]
+    return align_lyrics(notes, words)
+
+
+def align_lyrics(notes: List[Note], words: list[dict], max_distance: float = 0.35) -> List[Note]:
+    """Attach each word to the closest free note starting within ``max_distance``.
+
+    Uses binary search over the sorted note onsets, so it stays fast for long
+    songs (O(words · log notes) instead of O(words · notes)).
+    """
+    if not notes or not words:
+        return notes
+    notes.sort(key=lambda n: n.onset)
+    onsets = [n.onset for n in notes]
+    taken: set[int] = set()
+    for w in words:
+        text = (w.get("word") or "").strip()
+        if not text:
+            continue
+        start = float(w["start"])
+        lo = bisect.bisect_left(onsets, start - max_distance)
+        hi = bisect.bisect_right(onsets, start + max_distance)
+        best, best_d = None, max_distance
+        for idx in range(lo, hi):
+            if idx in taken:
+                continue
+            d = abs(onsets[idx] - start)
+            if d < best_d:
+                best, best_d = idx, d
+        if best is not None:
+            notes[best].lyric = text
+            taken.add(best)
+    return notes
+
+
+# ── Helpers / factory ───────────────────────────────────────────────────────
+
+
+def _is_silent(audio_path: Path, threshold: float = 1e-3) -> bool:
+    """Cheap check so we don't hallucinate notes from an empty stem."""
+    try:
+        import numpy as np
+        import soundfile as sf
+
+        data, _ = sf.read(str(audio_path), dtype="float32", always_2d=True)
+        if data.size == 0:
+            return True
+        rms = float(np.sqrt(np.mean(np.square(data))))
+        return rms < threshold
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def create_transcriber(transcribe_lyrics: bool = True) -> AudioTranscriber:
+    """Pick the best available melodic transcriber."""
+    if basic_pitch_available():
+        return BasicPitchTranscriber(transcribe_lyrics=transcribe_lyrics)
+    logger.warning("basic-pitch not available — using the pYIN fallback transcriber")
+    return PitchTrackTranscriber()
