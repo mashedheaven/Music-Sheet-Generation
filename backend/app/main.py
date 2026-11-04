@@ -29,7 +29,7 @@ def engine_capabilities() -> dict:
     try:
         from ml_pipeline.orchestrator import capabilities
 
-        return capabilities()
+        return capabilities(settings.SEPARATOR_BACKEND)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Could not inspect ML capabilities: %s", exc)
         return {"separator": "unknown", "transcriber": "unknown", "lyrics": False}

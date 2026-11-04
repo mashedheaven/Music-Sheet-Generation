@@ -332,17 +332,25 @@ class PipelineOrchestrator:
         )
 
 
-def capabilities() -> dict[str, object]:
-    """Report which engines are available in this environment."""
-    from ml_pipeline.separator import demucs_available
-    from ml_pipeline.transcriber import basic_pitch_available, whisper_available
+def capabilities(separator_backend: str = "auto") -> dict[str, object]:
+    """Report which engines will be used, without importing heavy ML packages.
 
-    has_demucs = demucs_available()
-    has_bp = basic_pitch_available()
+    Only checks that the packages are installed (fast); if one turns out to
+    be broken at run time the pipeline still falls back gracefully.
+    """
+    import importlib.util
+
+    def installed(*mods: str) -> bool:
+        return all(importlib.util.find_spec(m) is not None for m in mods)
+
+    has_demucs = installed("demucs", "torch")
+    has_bp = installed("basic_pitch")
+    backend = (separator_backend or "auto").lower()
+    separator = "hpss" if backend == "hpss" or (backend == "auto" and not has_demucs) else "demucs"
     return {
-        "separator": "demucs" if has_demucs else "hpss",
+        "separator": separator,
         "transcriber": "basic-pitch" if has_bp else "pyin",
-        "lyrics": whisper_available(),
+        "lyrics": installed("whisper"),
         "demucs": has_demucs,
         "basic_pitch": has_bp,
     }

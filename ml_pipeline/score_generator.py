@@ -95,6 +95,18 @@ _GM_PROGRAMS: Dict[InstrumentFamily, int] = {
 
 PPQ = 480
 
+_ENSEMBLE_ORDER: Dict[InstrumentFamily, int] = {
+    InstrumentFamily.VOCALS: 0,
+    InstrumentFamily.WINDS: 1,
+    InstrumentFamily.STRINGS: 2,
+    InstrumentFamily.GUITAR: 3,
+    InstrumentFamily.KEYS: 4,
+    InstrumentFamily.GENERIC_MELODIC: 5,
+    InstrumentFamily.BASS: 6,
+    InstrumentFamily.DRUMS: 7,
+    InstrumentFamily.GENERIC_PERCUSSION: 8,
+}
+
 
 @dataclass
 class _Event:
@@ -168,15 +180,20 @@ class Music21ScoreGenerator(ScoreGenerator):
 
         staves_per_part = [self._plan_staves(p) for p in instrument_parts]
 
-        # Ensemble score
-        score = self._new_score(self.config.title)
-        for part_data, staves in zip(instrument_parts, staves_per_part):
+        # Ensemble score — conventional order: voice, melodic, bass, drums.
+        score = self._new_score(self.config.title, subtitle="Full score")
+        order = sorted(
+            range(len(instrument_parts)),
+            key=lambda i: (_ENSEMBLE_ORDER.get(instrument_parts[i].instrument_info.family, 5), i),
+        )
+        for idx in order:
+            part_data, staves = instrument_parts[idx], staves_per_part[idx]
             for element in self._build_part(part_data, staves):
                 score.insert(0, element)
         ensemble_xml = out_dir / "ensemble_score.musicxml"
         ensemble_midi = out_dir / "ensemble_score.mid"
         score.write("musicxml", fp=str(ensemble_xml))
-        self._write_midi(ensemble_midi, instrument_parts)
+        self._write_midi(ensemble_midi, [instrument_parts[i] for i in order])
         logger.info("Wrote ensemble score with %d parts", len(instrument_parts))
 
         # Individual part scores
