@@ -6,7 +6,7 @@ set -e
 # =============================================================================
 
 echo ""
-echo "🎵 Music Sheet Generation MVP — Setup"
+echo "🎵 MuSheet — Setup"
 echo "======================================"
 echo ""
 
@@ -62,10 +62,14 @@ echo -e "${BLUE}[3/6]${NC} Checking ffmpeg..."
 if command -v ffmpeg &> /dev/null; then
     echo -e "  ${GREEN}✓${NC} ffmpeg found"
 else
-    echo -e "  ${YELLOW}!${NC} ffmpeg not found (required for audio processing)"
-    echo "  Installing via Homebrew..."
-    brew install ffmpeg
-    echo -e "  ${GREEN}✓${NC} ffmpeg installed"
+    if command -v brew &> /dev/null; then
+        echo "  ffmpeg not found — installing via Homebrew..."
+        brew install ffmpeg
+        echo -e "  ${GREEN}✓${NC} ffmpeg installed"
+    else
+        echo -e "  ${YELLOW}!${NC} ffmpeg not found. WAV/FLAC/MP3 work without it, but M4A/AAC need it."
+        echo "    Debian/Ubuntu: sudo apt install ffmpeg   ·   Windows: winget install ffmpeg"
+    fi
 fi
 
 # ---- Python Virtual Environment ----
@@ -84,11 +88,19 @@ echo -e "  ${GREEN}✓${NC} Activated virtual environment"
 echo "  Installing Python dependencies..."
 pip install --upgrade pip -q
 pip install -r backend/requirements.txt -q
-echo -e "  ${GREEN}✓${NC} Backend dependencies installed"
+# basic-pitch pins an old TensorFlow that doesn't exist for new Pythons; we run
+# its bundled ONNX model with onnxruntime instead, so skip its dependency pins.
+pip install --no-deps basic-pitch -q
+echo -e "  ${GREEN}✓${NC} Core dependencies installed (API, notation, Basic Pitch)"
 
-# Install ML pipeline dependencies (basic set for stubs)
-pip install music21 librosa soundfile numpy scipy pretty_midi -q
-echo -e "  ${GREEN}✓${NC} ML pipeline dependencies installed"
+if [ "${SKIP_DEMUCS:-0}" != "1" ]; then
+    echo "  Installing Demucs for high-quality stem separation (large download; SKIP_DEMUCS=1 to skip)..."
+    if pip install -r backend/requirements-ml.txt -q; then
+        echo -e "  ${GREEN}✓${NC} Demucs installed"
+    else
+        echo -e "  ${YELLOW}!${NC} Demucs could not be installed — MuSheet will use its lightweight separator"
+    fi
+fi
 
 # ---- Frontend Setup ----
 echo -e "${BLUE}[5/6]${NC} Setting up frontend..."
@@ -124,8 +136,6 @@ echo ""
 echo -e "  ${BLUE}API Docs:${NC}    http://localhost:8000/docs"
 echo -e "  ${BLUE}Frontend:${NC}    http://localhost:5173"
 echo ""
-echo -e "${YELLOW}Optional — Install real ML models later:${NC}"
-echo "    pip install demucs basic-pitch"
-echo "    # Or for faster Apple Silicon performance:"
-echo "    pip install demucs-mlx"
+echo -e "${YELLOW}Tip:${NC} create a test song with known tempo/key to try it out:"
+echo "    python scripts/make_test_song.py test_song.wav"
 echo ""

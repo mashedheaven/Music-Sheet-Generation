@@ -17,6 +17,7 @@ from app.config import settings
 from app.database import SessionLocal
 from app.models import Job, Score, Stem
 from app.services.file_service import get_absolute_path, to_relative
+from app.services.job_bus import job_bus
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,7 @@ def _update_progress(job_id: str, status: str, progress: float, message: str | N
             db.commit()
     finally:
         db.close()
+    job_bus.notify(job_id)
 
 
 def _fail_job(job_id: str, error_message: str) -> None:
@@ -85,6 +87,7 @@ def _fail_job(job_id: str, error_message: str) -> None:
             logger.error("Job %s failed: %s", job_id, error_message)
     finally:
         db.close()
+    job_bus.notify(job_id)
 
 
 def _build_config(job: Job):
@@ -175,6 +178,7 @@ def _persist_results(job_id: str, result) -> None:
         raise
     finally:
         db.close()
+    job_bus.notify(job_id)
 
 
 def run_pipeline(job_id: str, audio_path: str | None = None) -> None:

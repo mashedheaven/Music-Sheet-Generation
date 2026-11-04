@@ -138,8 +138,11 @@ class PipelineOrchestrator:
 
             # 2. Separate ---------------------------------------------------
             sep_name = getattr(self.separator, "name", type(self.separator).__name__)
-            hint = " (this is the slowest step)" if sep_name == "demucs" else ""
-            report(PipelineStage.SEPARATING, 0.02, f"Separating instruments with {sep_name}{hint}…")
+            if sep_name == "demucs":
+                msg = "Separating instruments with Demucs (the slowest step)…"
+            else:
+                msg = "Separating instruments (lightweight mode)…"
+            report(PipelineStage.SEPARATING, 0.02, msg)
             try:
                 stems = self.separator.separate(processed.file_path)
             except Exception as exc:  # noqa: BLE001

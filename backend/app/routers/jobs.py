@@ -52,7 +52,7 @@ async def create_job(
         )
     if file.size is not None and file.size > settings.MAX_FILE_SIZE_BYTES:
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status_code=413,
             detail=f"File too large. Maximum size: {settings.MAX_FILE_SIZE_MB} MB",
         )
     if quantization not in QUANTIZATION_CHOICES:

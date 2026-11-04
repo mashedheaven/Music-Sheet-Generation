@@ -5,6 +5,7 @@ audio stems into discrete note events.
 """
 from __future__ import annotations
 
+import bisect
 import contextlib
 import importlib.util
 import logging
@@ -591,16 +592,32 @@ def transcribe_lyrics(audio_path: Path, notes: List[Note]) -> List[Note]:
         result = _whisper_model.transcribe(str(audio_path), word_timestamps=True, fp16=False)
 
     words = [w for seg in result.get("segments", []) for w in seg.get("words", [])]
+    return align_lyrics(notes, words)
+
+
+def align_lyrics(notes: List[Note], words: list[dict], max_distance: float = 0.35) -> List[Note]:
+    """Attach each word to the closest free note starting within ``max_distance``.
+
+    Uses binary search over the sorted note onsets, so it stays fast for long
+    songs (O(words · log notes) instead of O(words · notes)).
+    """
+    if not notes or not words:
+        return notes
+    notes.sort(key=lambda n: n.onset)
+    onsets = [n.onset for n in notes]
     taken: set[int] = set()
     for w in words:
         text = (w.get("word") or "").strip()
         if not text:
             continue
-        best, best_d = None, 0.35
-        for idx, note in enumerate(notes):
+        start = float(w["start"])
+        lo = bisect.bisect_left(onsets, start - max_distance)
+        hi = bisect.bisect_right(onsets, start + max_distance)
+        best, best_d = None, max_distance
+        for idx in range(lo, hi):
             if idx in taken:
                 continue
-            d = abs(note.onset - float(w["start"]))
+            d = abs(onsets[idx] - start)
             if d < best_d:
                 best, best_d = idx, d
         if best is not None:

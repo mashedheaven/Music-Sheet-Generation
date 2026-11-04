@@ -46,6 +46,9 @@ class Settings(BaseSettings):
         "http://localhost:3000",
     ]
 
+    CORS_ALLOW_METHODS: list[str] = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"]
+    CORS_ALLOW_HEADERS: list[str] = ["Content-Type", "Accept", "Origin", "Range", "X-Requested-With", "Cache-Control"]
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     # Derived storage directories

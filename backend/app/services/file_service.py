@@ -23,6 +23,20 @@ def ensure_directories() -> None:
         directory.mkdir(parents=True, exist_ok=True)
 
 
+_JOB_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def _job_dir(base_dir: Path, job_id: str) -> Path:
+    """Return ``base_dir/job_id``, refusing ids that could escape ``base_dir``."""
+    if not job_id or not _JOB_ID_RE.match(job_id):
+        raise ValueError(f"Invalid job id: {job_id!r}")
+    base = base_dir.resolve()
+    target = (base / job_id).resolve()
+    if target.parent != base:
+        raise ValueError(f"Invalid job id: {job_id!r}")
+    return target
+
+
 def _safe_filename(name: str | None) -> str:
     name = Path(name or "upload").name
     stem, suffix = Path(name).stem, Path(name).suffix.lower()
@@ -38,7 +52,7 @@ async def save_upload(file: UploadFile, job_id: str) -> str:
     Returns:
         Path to the saved file, relative to the storage directory.
     """
-    job_upload_dir = settings.UPLOAD_DIR / job_id
+    job_upload_dir = _job_dir(settings.UPLOAD_DIR, job_id)
     job_upload_dir.mkdir(parents=True, exist_ok=True)
     dest_path = job_upload_dir / _safe_filename(file.filename)
 
@@ -49,7 +63,7 @@ async def save_upload(file: UploadFile, job_id: str) -> str:
                 written += len(chunk)
                 if written > settings.MAX_FILE_SIZE_BYTES:
                     raise HTTPException(
-                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        status_code=413,
                         detail=f"File too large. Maximum size: {settings.MAX_FILE_SIZE_MB} MB",
                     )
                 buffer.write(chunk)
@@ -82,7 +96,7 @@ def get_absolute_path(relative_path: str) -> Path:
 def delete_job_outputs(job_id: str) -> None:
     """Remove generated stems/scores for a job (keeps the original upload)."""
     for base_dir in (settings.STEMS_DIR, settings.SCORES_DIR, settings.EXPORTS_DIR):
-        job_dir = base_dir / job_id
+        job_dir = _job_dir(base_dir, job_id)
         if job_dir.exists():
             shutil.rmtree(job_dir, ignore_errors=True)
 
@@ -90,7 +104,7 @@ def delete_job_outputs(job_id: str) -> None:
 def delete_job_files(job_id: str) -> None:
     """Remove all files associated with a job from every storage directory."""
     delete_job_outputs(job_id)
-    job_dir = settings.UPLOAD_DIR / job_id
+    job_dir = _job_dir(settings.UPLOAD_DIR, job_id)
     if job_dir.exists():
         shutil.rmtree(job_dir, ignore_errors=True)
     logger.info("Deleted files for job %s", job_id)
