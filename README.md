@@ -1,201 +1,154 @@
-# MuSheet — Music Sheet Generation
+# MuSheet: song to sheet music
 
-> **Transform any song into per-instrument sheet music.** Upload an audio file, and MuSheet separates it into individual instrument stems, transcribes each to musical notation, and generates downloadable scores.
+> Upload a song and get sheet music for every instrument. MuSheet separates the recording into stems
+> (vocals, drums, bass, other), transcribes each one, aligns everything to the song's real beat grid, and
+> engraves notation you can play along with, transpose, print, or open in MuseScore / Sibelius / Dorico.
 
-[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-green.svg)](https://fastapi.tiangolo.com/)
-[![React 18](https://img.shields.io/badge/React-18+-61dafb.svg)](https://reactjs.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-
----
+[![React 19](https://img.shields.io/badge/React-19-61dafb.svg)](https://react.dev/)
 
 ## Features
 
-- **Audio Source Separation** — Splits songs into stems: vocals, drums, bass, guitar, piano, and more
-- **Instrument Detection** — Identifies instruments present in each stem
-- **Automatic Transcription** — Converts audio to symbolic notation (notes, rhythms, dynamics)
-- **Sheet Music Generation** — Produces MusicXML scores for each instrument
-- **Ensemble Score** — Combined multi-staff conductor's score
-- **In-Browser Rendering** — View sheet music directly in the browser (OSMD)
-- **Downloads** — Export as MusicXML, MIDI, or PDF
-- **Stem Playback** — Listen to individual instrument stems
-- **Real-Time Progress** — SSE-powered live pipeline progress
+- **Stem separation**: Demucs (`htdemucs`) when installed, otherwise a built-in lightweight DSP separator.
+  If Demucs fails at run time (e.g. its weights can't be downloaded), the job falls back automatically.
+- **Transcription**: Spotify Basic Pitch (runs on its bundled ONNX model, no TensorFlow needed), a pYIN
+  pitch-tracking fallback, and a dedicated drum classifier for kick, snare and hi-hat/crash.
+- **Musical analysis**:
+  - Tempo comes from a regression fit over the tracked beats.
+  - Kick and snare hits fix off-beat locks and place the bar lines.
+  - The key is detected (Krumhansl–Schmuckler) and accidentals are spelled for that key (B♭, not A♯, in F major).
+- **Readable engraving**:
+  - Notes snap to a 16th or 8th grid laid over the detected beats, with ghost notes, overtone duplicates and
+    overlaps cleaned up.
+  - Notes are tied across bar lines.
+  - Wide keyboard parts get a grand staff, and low voices get octave clefs.
+  - Drums use real kit notation.
+- **Studio view**:
+  - The mixer plays all stems in sync, with mute, solo and volume per track.
+  - An A/B switch plays either the recording or a synth rendering of the transcription.
+  - The score cursor follows playback.
+  - Zoom, transpose and print/PDF are built in.
+- **Exports**: MusicXML and MIDI per part, plus a full score and a multi-track MIDI file.
+- **Lyrics** (optional): with `openai-whisper` installed, words are placed under the vocal line.
+- **Robust jobs**: a queue, live progress over SSE, retry, rename, recovery after a server restart, and HTTP
+  range requests so audio seeking works.
 
-## Architecture
+## Quick start
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                     Frontend (React)                     │
-│  Dashboard │ Upload │ Transcription Detail │ Score View  │
-└─────────────────────┬───────────────────────────────────┘
-                      │ REST + SSE
-┌─────────────────────┴───────────────────────────────────┐
-│                   Backend (FastAPI)                       │
-│  Job CRUD │ File Storage │ Progress Streaming │ Auth     │
-└─────────────────────┬───────────────────────────────────┘
-                      │ Python calls
-┌─────────────────────┴───────────────────────────────────┐
-│                   ML Pipeline (Python)                    │
-│  Preprocess → Separate → Detect → Transcribe → Score    │
-│  (librosa)   (Demucs)   (stem)   (Basic-Pitch) (music21)│
-└─────────────────────────────────────────────────────────┘
-```
-
-## Project Structure
-
-```
-├── backend/                 # FastAPI REST API
-│   ├── app/
-│   │   ├── main.py          # App entry point
-│   │   ├── models.py        # SQLAlchemy ORM models
-│   │   ├── schemas.py       # Pydantic schemas
-│   │   ├── routers/         # API endpoints
-│   │   ├── services/        # Business logic
-│   │   └── tasks/           # Background job runner
-│   ├── tests/
-│   └── storage/             # Local file storage
-│
-├── ml_pipeline/             # Audio → Sheet Music pipeline
-│   ├── interfaces.py        # Abstract base classes
-│   ├── data_models.py       # Internal data types
-│   ├── separator.py         # Source separation (Demucs)
-│   ├── transcriber.py       # Audio → Notes (Basic-Pitch)
-│   ├── quantizer.py         # Tempo detection + quantization
-│   ├── score_generator.py   # Notes → MusicXML (music21)
-│   ├── orchestrator.py      # Pipeline coordinator
-│   └── tests/
-│
-├── frontend/                # React + Vite + TypeScript
-│   └── src/
-│       ├── pages/           # Dashboard, Upload, Detail
-│       ├── components/      # UI component library
-│       ├── api/             # API client
-│       └── hooks/           # Custom hooks (SSE, etc.)
-│
-└── scripts/                 # Setup & demo scripts
-```
-
-## Quick Start (macOS Apple Silicon)
-
-### Prerequisites
-
-- **Python 3.11+**: `brew install python@3.11`
-- **Node.js 18+**: `brew install node`
-- **ffmpeg**: `brew install ffmpeg`
-
-### One-Command Setup
+Prerequisites: **Python 3.10+**, **Node.js 18+** and, optionally, **ffmpeg** (needed for M4A/AAC).
 
 ```bash
-./scripts/setup.sh
+./scripts/setup.sh            # SKIP_DEMUCS=1 ./scripts/setup.sh to skip the large Demucs/torch install
 ```
 
-### Manual Setup
+<details><summary>Manual setup</summary>
 
 ```bash
-# 1. Python environment
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r backend/requirements.txt
-pip install music21 librosa soundfile numpy scipy pretty_midi
-
-# 2. Frontend
-cd frontend && npm install && cd ..
-
-# 3. Storage
-mkdir -p backend/storage/{uploads,stems,scores,exports}
+pip install --no-deps basic-pitch          # its own pins require an old TensorFlow; we use ONNX
+pip install -r backend/requirements-ml.txt # optional: Demucs (best separation quality)
+cd frontend && npm install
 ```
+</details>
 
-### Run the Application
+Run it in two terminals:
 
-**Terminal 1 — Backend:**
 ```bash
+# Terminal 1 — API
 source .venv/bin/activate
-cd backend
-python -m uvicorn app.main:app --reload --port 8000
+cd backend && uvicorn app.main:app --reload --port 8000
 ```
 
-**Terminal 2 — Frontend:**
 ```bash
-cd frontend
-npm run dev
+# Terminal 2 — Web app
+cd frontend && npm run dev
 ```
 
-**Open:**
-- Frontend: [http://localhost:5173](http://localhost:5173)
-- API Docs: [http://localhost:8000/docs](http://localhost:8000/docs)
+Open <http://localhost:5173>. The dev server proxies `/api` to port 8000, so you never hit CORS problems.
+API docs are at <http://localhost:8000/docs>.
 
-## API Endpoints
+To try it without a real song, generate a test track with a known answer (98 BPM, F major, 4/4):
+
+```bash
+python scripts/make_test_song.py test_song.wav
+```
+
+## Configuration
+
+Set these as environment variables or in `backend/.env`:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `SEPARATOR_BACKEND` | `auto` | `auto` (Demucs if installed), `demucs`, or `hpss` (lightweight) |
+| `SEPARATOR_MODEL` | `htdemucs` | Any Demucs model, e.g. `htdemucs_6s` (adds guitar and piano stems) |
+| `USE_GPU` | `true` | Use CUDA or Apple MPS for Demucs when available |
+| `TRANSCRIBE_LYRICS` | `true` | Use Whisper for lyrics if it is installed |
+| `MAX_FILE_SIZE_MB` / `MAX_DURATION_SECONDS` | `100` / `600` | Upload limits |
+| `MAX_CONCURRENT_JOBS` | `1` | Jobs processed in parallel (the models are memory hungry) |
+| `STORAGE_BASE_PATH` / `DATABASE_URL` | `backend/storage`, `backend/music_transcription.db` | Data locations |
+
+For the frontend, `VITE_PROXY_TARGET` sets where the dev proxy points, and `VITE_API_URL` makes the app call
+a remote API directly.
+
+## How the pipeline works
+
+```
+upload ─► preprocess ─► separate ─► detect ─► transcribe ─► align & quantize ─► engrave
+          decode any    Demucs /    stem →     Basic Pitch / pYIN  beat grid from   MusicXML (music21)
+          format, 44.1k HPSS        instrument + drum classifier   drums + onsets,   MIDI (mido), peaks,
+          normalize                                               trim silence      synth previews
+```
+
+| Module | Role |
+|---|---|
+| `ml_pipeline/preprocessor.py` | Validation and decoding (soundfile, then ffmpeg as a fallback) |
+| `ml_pipeline/separator.py` | `DemucsSeparator`, `HPSSSeparator`, `MockSeparator` |
+| `ml_pipeline/transcriber.py` | `BasicPitchTranscriber`, `PitchTrackTranscriber`, `DrumTranscriber`, lyrics |
+| `ml_pipeline/note_cleanup.py` | Per-instrument cleanup (ranges, ghost notes, harmonics, monophony) |
+| `ml_pipeline/quantizer.py` | Tempo and beat detection, drum-based grid refinement, quantization |
+| `ml_pipeline/music_theory.py` | Key estimation and enharmonic spelling |
+| `ml_pipeline/score_generator.py` | Engraving (chord lines, rests, ties, clefs, grand staff, drums) and MIDI |
+| `ml_pipeline/orchestrator.py` | Runs the stages and reports progress |
+
+## API
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/jobs` | Upload audio & create transcription job |
-| `GET` | `/api/jobs` | List all jobs |
-| `GET` | `/api/jobs/{id}` | Get job details with stems & scores |
-| `DELETE` | `/api/jobs/{id}` | Delete job and files |
-| `GET` | `/api/jobs/{id}/progress` | SSE stream for real-time progress |
-| `GET` | `/api/files/stems/{id}/audio` | Stream stem audio |
-| `GET` | `/api/files/scores/{id}/download` | Download score file |
-| `GET` | `/api/health` | Health check |
+|---|---|---|
+| `POST` | `/api/jobs` | Upload audio (`file`, optional `title`, `bpm`, `time_signature`, `quantization`, `transcribe_vocals`, `indian_percussion_mode`) |
+| `GET` | `/api/jobs` · `/api/jobs/{id}` | List jobs, or get one job with its stems, scores, tempo, key and beat grid |
+| `PATCH` | `/api/jobs/{id}` | Rename |
+| `POST` | `/api/jobs/{id}/retry` | Re-run the pipeline |
+| `DELETE` | `/api/jobs/{id}` | Delete a job and its files |
+| `GET` | `/api/jobs/{id}/progress` | Server-Sent Events progress stream |
+| `GET` | `/api/files/stems/{id}/audio` · `/preview` · `/peaks` | Stem audio, transcription preview, waveform |
+| `GET` | `/api/files/jobs/{id}/original` · `/peaks` | Original upload and its waveform |
+| `GET` | `/api/files/scores/{id}/download` | MusicXML or MIDI (`?inline=true` to view in the browser) |
+| `GET` | `/api/health` | Status plus the available engines |
 
-## ML Pipeline Stages
-
-1. **Pre-processing** — Normalize audio, resample to 44.1kHz
-2. **Source Separation** — Split into stems via Demucs v4 (`htdemucs`)
-3. **Instrument Detection** — Identify instruments per stem
-4. **Transcription** — Convert audio → notes via Basic-Pitch
-5. **Quantization** — Snap notes to musical grid (tempo-aware)
-6. **Score Generation** — Produce MusicXML, MIDI, PDF via music21
-
-### Extending with Real ML Models
+## Development
 
 ```bash
-# Install Demucs (source separation)
-pip install demucs
-# Or for 20-30x faster on Apple Silicon:
-pip install demucs-mlx
-
-# Install Basic-Pitch (transcription)
-pip install basic-pitch
+python -m pytest                 # backend + ML pipeline (from the repo root)
 ```
-
-## 🛠️ Development
-
-### Run Tests
 
 ```bash
-# Backend
-cd backend && python -m pytest tests/ -v
-
-# ML Pipeline
-cd ml_pipeline && python -m pytest tests/ -v
-
-# Frontend
-cd frontend && npm test
+cd frontend && npm test          # unit tests
 ```
 
-### Tech Stack
+```bash
+cd frontend && npm run lint && npm run build
+```
 
-| Layer | Technology |
-|-------|-----------|
-| Frontend | React 18, Vite 8, TypeScript, OSMD, WaveSurfer.js |
-| Backend | FastAPI, SQLAlchemy, SQLite, SSE |
-| ML Pipeline | Demucs, Basic-Pitch, librosa, music21 |
-| Score Rendering | OpenSheetMusicDisplay (browser), music21 (server) |
-| Audio | WaveSurfer.js (browser), librosa (server) |
+The backend tests include an end-to-end run of the real pipeline on a short generated melody.
 
-## 📋 Current Status
+## Limitations
 
-**Iteration 1 (Skeleton)** — ✅ Complete
-- Full backend with job CRUD, file upload, SSE progress
-- ML pipeline with pluggable interfaces and mock implementations
-- Premium dark-mode frontend with all core pages
-- End-to-end flow with stub data
+Automatic transcription is a strong starting point, not a finished engraving. Expect to touch up the result,
+especially for dense "other" stems such as full band arrangements. Demucs separation quality has the biggest
+effect on the result, so install it if you can.
 
-**Iteration 2 (Basic Pipeline)** — 🔜 Next
-- Real source separation via Demucs
-- Real transcription via Basic-Pitch
-- Real score rendering via OSMD
-
-## 📄 License
+## License
 
 MIT

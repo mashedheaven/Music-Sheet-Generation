@@ -156,3 +156,75 @@ class TestRootEndpoint:
         data = response.json()
         assert "name" in data
         assert "version" in data
+
+
+class TestJobOptions:
+    """Validation of the processing options accepted on upload."""
+
+    def test_job_is_queued(self, client: TestClient, sample_wav_bytes: bytes, submitted):
+        resp = client.post("/api/jobs", files={"file": ("a.wav", io.BytesIO(sample_wav_bytes), "audio/wav")})
+        assert resp.status_code == 201
+        assert submitted == [resp.json()["id"]]
+
+    def test_options_are_stored(self, client: TestClient, sample_wav_bytes: bytes):
+        resp = client.post(
+            "/api/jobs",
+            files={"file": ("a.wav", io.BytesIO(sample_wav_bytes), "audio/wav")},
+            data={"quantization": "eighth", "bpm": "92", "time_signature": "3/4"},
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["quantization"] == "eighth"
+        assert data["bpm_override"] == 92
+        assert data["time_signature"] == "3/4"
+        assert data["original_url"].endswith("/original")
+
+    @pytest.mark.parametrize(
+        "field,value",
+        [("quantization", "32nd"), ("time_signature", "7/8"), ("bpm", "5")],
+    )
+    def test_invalid_options_rejected(self, client: TestClient, sample_wav_bytes: bytes, field, value):
+        resp = client.post(
+            "/api/jobs",
+            files={"file": ("a.wav", io.BytesIO(sample_wav_bytes), "audio/wav")},
+            data={field: value},
+        )
+        assert resp.status_code == 422
+
+    def test_empty_file_rejected(self, client: TestClient):
+        resp = client.post("/api/jobs", files={"file": ("a.wav", io.BytesIO(b""), "audio/wav")})
+        assert resp.status_code == 422
+
+
+class TestRetryAndRename:
+    def test_retry_requeues(self, client: TestClient, sample_wav_bytes: bytes, submitted):
+        job_id = client.post(
+            "/api/jobs", files={"file": ("a.wav", io.BytesIO(sample_wav_bytes), "audio/wav")}
+        ).json()["id"]
+        resp = client.post(f"/api/jobs/{job_id}/retry")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "pending"
+        assert submitted == [job_id, job_id]
+
+    def test_rename(self, client: TestClient, sample_wav_bytes: bytes):
+        job_id = client.post(
+            "/api/jobs", files={"file": ("a.wav", io.BytesIO(sample_wav_bytes), "audio/wav")}
+        ).json()["id"]
+        resp = client.patch(f"/api/jobs/{job_id}", data={"title": "  New name "})
+        assert resp.status_code == 200
+        assert resp.json()["title"] == "New name"
+
+    def test_original_audio_served(self, client: TestClient, sample_wav_bytes: bytes):
+        job_id = client.post(
+            "/api/jobs", files={"file": ("a.wav", io.BytesIO(sample_wav_bytes), "audio/wav")}
+        ).json()["id"]
+        resp = client.get(f"/api/files/jobs/{job_id}/original", headers={"Range": "bytes=0-99"})
+        assert resp.status_code == 206
+        assert len(resp.content) == 100
+
+
+class TestHealthEngines:
+    def test_health_reports_engines(self, client: TestClient):
+        data = client.get("/api/health").json()
+        assert "engines" in data
+        assert data["engines"]["separator"] in {"demucs", "hpss", "unknown"}

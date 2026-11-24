@@ -9,6 +9,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+#: Human-friendly names accepted for the rhythmic grid.
+GRID_PRESETS: dict[str, float] = {
+    "quarter": 0.25,
+    "eighth": 0.125,
+    "sixteenth": 0.0625,
+}
+
 
 @dataclass
 class PipelineConfig:
@@ -24,29 +31,54 @@ class PipelineConfig:
         output_dir: Directory for all pipeline outputs. Defaults to ./output.
         stems_dir: Directory for separated audio stems. Defaults to output_dir/stems.
         use_gpu: Whether to attempt GPU acceleration for ML models.
-        separator_model: Name of the source separation model to use.
+        separator_model: Name of the Demucs model to use.
+        separator_backend: "auto" (Demucs if installed, else HPSS), "demucs" or "hpss".
+        transcribe_vocals: Whether to keep and transcribe the vocal stem.
+        transcribe_lyrics: Attach Whisper lyrics to the vocal line (if installed).
+        indian_percussion_mode: Label the percussion part as Indian percussion.
+        bpm_override: Use this tempo instead of auto-detecting it.
+        time_signature: Time signature as (numerator, denominator).
+        title: Title written into the generated scores.
     """
 
     sample_rate: int = 44100
-    max_duration_seconds: int = 360
+    max_duration_seconds: int = 600
     quantization_grid: float = 0.0625  # 16th note (1/16 of a whole note)
     supported_formats: list[str] = field(
-        default_factory=lambda: [".mp3", ".wav", ".flac", ".ogg", ".m4a"]
+        default_factory=lambda: [".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".aiff", ".aif"]
     )
-    max_file_size_mb: int = 50
+    max_file_size_mb: int = 100
     output_dir: Optional[Path] = None
     stems_dir: Optional[Path] = None
-    use_gpu: bool = False
+    use_gpu: bool = True
     separator_model: str = "htdemucs"
+    separator_backend: str = "auto"
     transcribe_vocals: bool = True
+    transcribe_lyrics: bool = True
     indian_percussion_mode: bool = False
+    bpm_override: Optional[float] = None
+    time_signature: tuple[int, int] = (4, 4)
+    title: str = "Transcribed Score"
 
     def __post_init__(self) -> None:
         """Set derived defaults and validate configuration."""
         if self.output_dir is None:
             self.output_dir = Path("output")
+        self.output_dir = Path(self.output_dir)
         if self.stems_dir is None:
             self.stems_dir = self.output_dir / "stems"
+        self.stems_dir = Path(self.stems_dir)
+        if self.quantization_grid <= 0:
+            raise ValueError("quantization_grid must be positive")
+        if self.bpm_override is not None and not 20 <= self.bpm_override <= 300:
+            raise ValueError("bpm_override must be between 20 and 300")
+
+    @classmethod
+    def grid_from_name(cls, name: str | None) -> float:
+        """Translate "eighth"/"sixteenth"/"quarter" to a grid fraction."""
+        if not name:
+            return GRID_PRESETS["sixteenth"]
+        return GRID_PRESETS.get(name.lower(), GRID_PRESETS["sixteenth"])
 
     def ensure_directories(self) -> None:
         """Create output and stems directories if they don't exist."""

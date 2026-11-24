@@ -118,12 +118,17 @@ class ScoreGenerator(ABC):
     """Generates music notation from transcribed instrument parts."""
 
     @abstractmethod
-    def generate(self, instrument_parts: List[InstrumentPart]) -> ScoreOutput:
+    def generate(
+        self,
+        instrument_parts: List[InstrumentPart],
+        tempo_info: Optional[TempoInfo] = None,
+    ) -> ScoreOutput:
         """Generate music scores from instrument parts.
 
         Args:
             instrument_parts: List of InstrumentPart objects, each containing
                 quantized notes and instrument metadata.
+            tempo_info: Tempo / meter / beat grid the notes were quantized to.
 
         Returns:
             ScoreOutput with paths to generated MusicXML, MIDI, and PDF files.

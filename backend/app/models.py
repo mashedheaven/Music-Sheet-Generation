@@ -1,5 +1,6 @@
 """SQLAlchemy ORM models for the music transcription application."""
 
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -51,14 +52,27 @@ class Job(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
     )
-    
+
     # Configuration flags
     transcribe_vocals: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     indian_percussion_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    quantization: Mapped[str] = mapped_column(String(20), nullable=False, default="sixteenth")
+    bpm_override: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    time_signature: Mapped[str] = mapped_column(String(10), nullable=False, default="4/4")
+
+    # Analysis results
+    tempo_bpm: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    key_signature: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    beat_times_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    peaks_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    separator_used: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    transcriber_used: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    processing_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     # Relationships
     stems: Mapped[List["Stem"]] = relationship(
-        "Stem", back_populates="job", cascade="all, delete-orphan", lazy="selectin"
+        "Stem", back_populates="job", cascade="all, delete-orphan", lazy="selectin",
+        order_by="Stem.sort_order",
     )
     scores: Mapped[List["Score"]] = relationship(
         "Score", back_populates="job", cascade="all, delete-orphan", lazy="selectin"
@@ -67,7 +81,6 @@ class Job(Base):
     # Valid status values
     VALID_STATUSES = (
         "pending",
-        "uploading",
         "processing",
         "separating",
         "transcribing",
@@ -75,6 +88,16 @@ class Job(Base):
         "complete",
         "failed",
     )
+    TERMINAL_STATUSES = ("complete", "failed")
+
+    @property
+    def beat_times(self) -> list[float]:
+        if not self.beat_times_json:
+            return []
+        try:
+            return json.loads(self.beat_times_json)
+        except ValueError:
+            return []
 
     def __repr__(self) -> str:
         return f"<Job(id={self.id!r}, title={self.title!r}, status={self.status!r})>"
@@ -97,6 +120,11 @@ class Stem(Base):
     is_percussion: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     confidence: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
     audio_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    stem_name: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    note_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    peaks_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    synth_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
     )
